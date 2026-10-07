@@ -1,0 +1,7 @@
+/docs/requirements.md
+/docs/platform-options.md
+node_modules/
+dist/
+test-results/
+playwright-report/
+*.tsbuildinfo
