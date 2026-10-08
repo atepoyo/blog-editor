@@ -5,3 +5,8 @@ dist/
 test-results/
 playwright-report/
 *.tsbuildinfo
+.dev.vars*
+.env*
+worker/gateway.jsonc
+worker/publisher.jsonc
+.wrangler/

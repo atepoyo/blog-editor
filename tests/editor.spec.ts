@@ -2,7 +2,30 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { z } from 'zod';
 
-test.use({ permissions: ['clipboard-read', 'clipboard-write'] });
+test('同じオリジンの投稿APIだけに別タブのログイン導線を表示する', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('タイトル', { exact: true }).fill('ログイン前の下書き');
+  await page.getByRole('button', { name: '設定', exact: true }).click();
+  const input = page.getByLabel('Worker URL');
+  const link = page.getByRole('link', { name: '投稿先にログイン（別タブ）' });
+  const origin = new URL(page.url()).origin;
+  await input.fill(`${origin}/posts`);
+  await expect(link).toHaveAttribute('href', `${origin}/auth/login`);
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  await page.getByRole('button', { name: '設定を反映' }).click();
+  await page.getByRole('button', { name: 'English', exact: true }).click();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('link', { name: 'Sign in to post (new tab)' })).toBeVisible();
+  await input.fill('https://other.example/posts');
+  await expect(page.getByRole('link')).toHaveCount(0);
+  await input.fill(`${origin}/other-api`);
+  await expect(page.getByRole('link')).toHaveCount(0);
+  await input.fill('https://');
+  await expect(page.getByRole('link')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByLabel('Title', { exact: true })).toHaveValue('ログイン前の下書き');
+});
 
 async function settings(page: Page, publicUrl = 'https://images.example.com/', workerUrl = '') {
   await page.getByRole('button', { name: '設定', exact: true }).click();
@@ -54,15 +77,11 @@ async function decodedImage(page: Page, image: File) {
   }, bytes);
 }
 
-test('未接続でも記事を書いてMarkdownをコピーできる', async ({ page }) => {
+test('未接続でも記事を書けて投稿操作だけを表示する', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('タイトル', { exact: true }).fill('今日の日記');
   await page.getByRole('textbox', { name: '本文', exact: true }).fill('本文です。');
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
-  await expect(page.getByRole('status')).toContainText('コピーしました');
-  const markdown = await page.evaluate(() => navigator.clipboard.readText());
-  expect(markdown).toContain('title: "今日の日記"');
-  expect(markdown).toContain('本文です。');
+  await expect(page.getByRole('button', { name: /Markdownをコピー|Copy Markdown/ })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/editor-mobile.png', fullPage: true });
   await page.getByRole('button', { name: '投稿', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('未接続');
@@ -80,30 +99,25 @@ test('日英を切り替えても記事・写真・設定を保ち案内とエ�
   await page.getByRole('textbox', { name: '本文', exact: true }).fill('記事の内容');
   await sourcePhoto(page);
   const body = await page.getByRole('textbox', { name: '本文', exact: true }).inputValue();
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
+  await page.getByRole('button', { name: '投稿', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('公開URL');
   await page.getByRole('button', { name: 'English', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page.getByPlaceholder('Title', { exact: true })).toHaveValue('私の日記');
   await expect(page.getByPlaceholder('Body', { exact: true })).toHaveValue(body);
-  await expect(page.getByRole('alert')).toContainText('Set the public image URL');
+  await expect(page.getByRole('alert')).toContainText('Set the public R2 image URL');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByLabel('Worker URL')).toHaveAttribute('placeholder', 'https://app.me.workers.dev/posts');
+  await expect(page.getByLabel('Worker URL')).toHaveAttribute('placeholder', 'https://editor.example.com/posts');
   await expect(page.getByText('Your R2 custom domain without an image filename.', { exact: true })).toBeVisible();
   await page.getByLabel('Public image URL').fill('https://images.example.com/');
   await page.screenshot({ path: 'test-results/settings-en.png', fullPage: true });
   await page.getByRole('button', { name: 'Apply settings' }).click();
-  await page.getByRole('button', { name: 'Copy Markdown' }).click();
-  await expect(page.getByRole('status')).toContainText('Markdown copied.');
-  const englishCopy = await page.evaluate(() => navigator.clipboard.readText());
-  expect(englishCopy).toContain('title: "私の日記"');
-  expect(englishCopy).toContain('https://images.example.com/images/');
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('No posting service connected');
   await page.getByRole('button', { name: '日本語', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('lang', 'ja');
-  await expect(page.getByRole('status')).toContainText('Markdownをコピーしました');
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
-  await expect(page.getByRole('status')).toContainText('Markdownをコピーしました');
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(englishCopy);
+  await expect(page.getByRole('alert')).toContainText('投稿先が未接続');
+  await expect(page.getByRole('textbox', { name: '本文', exact: true })).toHaveValue(body);
   await settings(page, 'https://images.example.com/');
   await page.getByRole('button', { name: 'English', exact: true }).click();
   const textArea = page.getByRole('textbox', { name: 'Body', exact: true });
@@ -113,8 +127,7 @@ test('日英を切り替えても記事・写真・設定を保ち案内とエ�
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByLabel('Public image URL')).toHaveValue('https://images.example.com/');
-  await page.getByLabel('Image storage').selectOption('github');
-  await expect(page.getByText('Your image-serving site URL without an image filename.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
@@ -127,8 +140,6 @@ test('使い方を日英のポップアップで表示し閉じても記事・�
   await sourcePhoto(page);
   await settings(page);
   const body = await page.getByRole('textbox', { name: '本文', exact: true }).inputValue();
-  await page.getByRole('button', { name: 'Markdownをコピー', exact: true }).click();
-  const before = await page.evaluate(() => navigator.clipboard.readText());
   const help = page.getByRole('button', { name: '使い方', exact: true });
   await help.click();
   await expect(page.getByRole('dialog', { name: '使い方', exact: true })).toBeVisible();
@@ -147,8 +158,6 @@ test('使い方を日英のポップアップで表示し閉じても記事・�
   await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('使い方を見ても残る記事');
   await expect(page.getByRole('textbox', { name: 'Body', exact: true })).toHaveValue(body);
   await expect(page.getByText('1 photo(s) ready', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Copy Markdown', exact: true }).click();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(before);
   await page.getByRole('button', { name: 'Help', exact: true }).click();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -166,18 +175,16 @@ test('長押しで写真追加画面を開き移動操作では開かない', as
   await expect(page.getByRole('dialog', { name: '写真を追加', exact: true })).toBeVisible();
 });
 
-test('写真の準備は公開URL未設定でも行え未設定のままコピーはしない', async ({ page }) => {
+test('写真の準備は公開URL未設定でも行え未設定のまま投稿はしない', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('タイトル', { exact: true }).fill('写真の記事');
   await sourcePhoto(page);
   await expect(page.getByRole('textbox', { name: '本文', exact: true })).toHaveValue(/images\/[\da-f-]+\.jpg/);
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
+  await page.getByRole('button', { name: '投稿', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('公開URL');
   await settings(page);
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
-  const markdown = await page.evaluate(() => navigator.clipboard.readText());
-  expect(markdown).toContain('https://images.example.com/images/');
-  expect(markdown).not.toContain('source.jpg');
+  await page.getByRole('button', { name: '投稿', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('未接続');
 });
 
 test('縮小JPEGだけを同一Markdownとともに送り保存失敗後も再送できる', async ({ page }) => {
@@ -194,8 +201,6 @@ test('縮小JPEGだけを同一Markdownとともに送り保存失敗後も再�
   await page.getByRole('textbox', { name: '本文', exact: true }).fill('前の文章');
   await sourcePhoto(page);
   expect(await page.locator('html').getAttribute('data-jpeg-quality')).toBe('1');
-  await page.getByRole('button', { name: 'Markdownをコピー' }).click();
-  const copied = await page.evaluate(() => navigator.clipboard.readText());
   const originalBody = await page.getByRole('textbox', { name: '本文', exact: true }).inputValue();
   const sent: FormData[] = [];
   await page.route('**/worker**', async (route) => {
@@ -221,8 +226,10 @@ test('縮小JPEGだけを同一Markdownとともに送り保存失敗後も再�
   await page.getByRole('button', { name: '投稿', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('投稿しました');
   expect(sent).toHaveLength(2);
-  expect(sent[0]?.get('markdown')).toBe(copied);
-  expect(sent[1]?.get('markdown')).toBe(copied);
+  expect(sent[1]?.get('markdown')).toBe(sent[0]?.get('markdown'));
+  expect(sent[0]?.get('markdown')).toContain('title: "写真の記事"');
+  expect(sent[0]?.get('markdown')).toContain('https://images.example.com/images/');
+  expect(sent[0]?.get('markdown')).toContain('前の文章');
   const image = sent[0]?.get('image-0');
   const retryImage = sent[1]?.get('image-0');
   if (!(image instanceof File) || !(retryImage instanceof File)) throw new Error('送信画像がありません。');

@@ -9,6 +9,13 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
   const [draft, setDraft] = useState(settings);
   const [error, setError] = useState<MessageKey | null>(null);
   const text = messages[language];
+  let loginUrl: string | undefined;
+  try {
+    const endpoint = new URL(parseEndpoint(draft.workerUrl));
+    if (endpoint.origin === location.origin && endpoint.pathname === '/posts') {
+      loginUrl = new URL('/auth/login', endpoint).href;
+    }
+  } catch { /* 入力途中のURLではログイン先を表示しない。 */ }
   return (
     <Modal title={text.settings} closeLabel={text.close} onClose={onClose}>
       <form className="settings-form" onSubmit={(event) => {
@@ -21,19 +28,16 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
           setError(reason instanceof EditorError ? reason.key : 'invalidUrl');
         }
       }}>
-        <label className="field">{text.imageStorage}<select value={draft.imageStorage} onChange={(event) => {
-          const value = event.currentTarget.value;
-          if (value === 'r2' || value === 'github') setDraft({ ...draft, imageStorage: value });
-        }}><option value="r2">Cloudflare R2</option><option value="github">GitHub</option></select></label>
         <div className="field-group">
           <label className="field">{text.publicUrl}<input aria-describedby="public-url-help" type="url" inputMode="url" placeholder="https://img.example.com/" value={draft.publicImageUrl} onChange={(event) => setDraft({ ...draft, publicImageUrl: event.currentTarget.value })} /></label>
           <div id="public-url-help" className="field-help">
-            <p className="hint">{draft.imageStorage === 'r2' ? text.r2Hint : text.githubHint}</p>
+            <p className="hint">{text.r2Hint}</p>
           </div>
         </div>
         <div className="field-group">
-          <label className="field">{text.workerUrl}<input aria-describedby="worker-url-help" type="url" inputMode="url" placeholder="https://app.me.workers.dev/posts" value={draft.workerUrl} onChange={(event) => setDraft({ ...draft, workerUrl: event.currentTarget.value })} /></label>
+          <label className="field">{text.workerUrl}<input aria-describedby="worker-url-help" type="url" inputMode="url" placeholder="https://editor.example.com/posts" value={draft.workerUrl} onChange={(event) => setDraft({ ...draft, workerUrl: event.currentTarget.value })} /></label>
           <p id="worker-url-help" className="hint">{text.workerHint}</p>
+          {loginUrl && <a href={loginUrl} target="_blank" rel="noopener noreferrer">{text.signIn}</a>}
         </div>
         <p className="hint">{text.sessionHint}</p>
         {error && <p role="alert" className="error">{text[error]}</p>}

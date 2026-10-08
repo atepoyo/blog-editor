@@ -3,10 +3,7 @@ import type { Nodes } from 'mdast';
 import { z } from 'zod';
 import { EditorError } from './messages';
 
-export type ImageStorage = 'r2' | 'github';
-
 export interface Settings {
-  imageStorage: ImageStorage;
   publicImageUrl: string;
   workerUrl: string;
 }
@@ -19,7 +16,6 @@ export interface Photo {
 export interface Article {
   markdown: string;
   path: string;
-  imageStorage: ImageStorage;
   images: Photo[];
 }
 
@@ -103,7 +99,6 @@ export function generateArticle(
   return {
     markdown: `---\ntitle: ${JSON.stringify(title.trim())}\ndate: ${JSON.stringify(date)}\n---\n\n${markdownBody}\n`,
     path: `posts/${date}.md`,
-    imageStorage: settings.imageStorage,
     images: photos.filter((photo) => used.has(photo)),
   };
 }

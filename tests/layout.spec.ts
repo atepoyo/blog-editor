@@ -45,20 +45,13 @@ for (const width of [320, 390, 768, 1440]) {
       expect(nav.x + nav.width).toBeLessThanOrEqual(width - 24);
       expect(nav.y + nav.height / 2).toBe(brand.y + brand.height / 2);
       expect(nav.x).toBeGreaterThan(brand.x + brand.width);
-      const copyButton = page.getByRole('button', { name: language === 'ja' ? 'Markdownをコピー' : 'Copy Markdown', exact: true });
       const postButton = page.getByRole('button', { name: language === 'ja' ? '投稿' : 'Post', exact: true });
-      const copyRect = await copyButton.boundingBox();
       const postRect = await postButton.boundingBox();
-      if (!copyRect || !postRect) throw new Error('投稿操作を取得できません。');
-      expect(Math.abs(copyRect.width - postRect.width)).toBeLessThan(1);
-      expect(copyRect.height).toBe(postRect.height);
-      if (width >= 360) {
-        expect(copyRect.y).toBe(postRect.y);
-        expect(copyRect.x).toBeLessThan(postRect.x);
-      } else {
-        expect(copyRect.x).toBe(postRect.x);
-        expect(copyRect.y).toBeLessThan(postRect.y);
-      }
+      const actionsRect = await page.locator('.actions').boundingBox();
+      if (!actionsRect || !postRect) throw new Error('投稿操作を取得できません。');
+      expect(postRect.x).toBe(actionsRect.x);
+      expect(Math.abs(postRect.width - actionsRect.width)).toBeLessThan(1);
+      await expect(page.getByRole('button', { name: /Markdownをコピー|Copy Markdown/ })).toHaveCount(0);
       const before = await title.boundingBox();
       await title.focus();
       expect(await title.boundingBox()).toEqual(before);
