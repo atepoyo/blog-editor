@@ -12,7 +12,6 @@ export function articleFormData(article: Article): FormData {
   form.append('manifest', JSON.stringify({
     version: 1,
     articlePath: article.path,
-    imageStorage: article.imageStorage,
     images: article.images.map((photo, index) => ({ field: `image-${index}`, filename: photo.file.name, path: photo.path })),
   }));
   article.images.forEach((photo, index) => form.append(`image-${index}`, photo.file, photo.file.name));

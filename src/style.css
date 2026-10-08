@@ -91,7 +91,7 @@ input:focus, textarea:focus, select:focus {
 
 .editor-footer { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
 .hint, .connection { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
-.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.actions { display: grid; grid-template-columns: minmax(0, 1fr); }
 .connection { font-size: 12px; }
 .error, .notice { margin: 0; padding: var(--space-2); border-radius: var(--radius); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
 .error { background: #ffebe3; color: #923920; }
@@ -123,10 +123,6 @@ dialog form { display: grid; gap: var(--space-2); }
 .help-settings dt { font-weight: 600; }
 .help-settings dd { margin: var(--space-1) 0 0; }
 .help-content code { font-family: ui-monospace, monospace; font-size: 12px; overflow-wrap: anywhere; }
-
-@media (max-width: 359px) {
-  .actions { grid-template-columns: 1fr; }
-}
 
 @media (min-width: 640px) {
   main { padding: var(--space-4); }

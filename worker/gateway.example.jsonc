@@ -1,0 +1,14 @@
+{
+  "name": "blog-editor-gateway",
+  "main": "gateway.ts",
+  "compatibility_date": "2026-10-08",
+  "workers_dev": false,
+  "preview_urls": false,
+  "services": [{ "binding": "PUBLISHER", "service": "blog-editor-publisher" }],
+  "vars": {
+    "EDITOR_ORIGIN": "https://editor.example.com",
+    "ACCESS_ISSUER": "https://your-team.cloudflareaccess.com",
+    "ACCESS_AUD": "YOUR_ACCESS_APPLICATION_AUD",
+    "ALLOWED_EMAILS": "you@example.com"
+  }
+}

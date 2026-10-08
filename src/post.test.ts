@@ -5,7 +5,6 @@ import type { Article } from './article';
 const article: Article = {
   markdown: '---\ntitle: "記事"\ndate: "2026-10-07"\n---\n\n本文',
   path: 'posts/2026-10-07.md',
-  imageStorage: 'r2',
   images: [{ file: new File(['resized-jpeg'], 'fixed.jpg', { type: 'image/jpeg' }), path: 'images/fixed.jpg' }],
 };
 const endpoint = 'https://worker.example.com/posts';
@@ -13,7 +12,7 @@ const endpoint = 'https://worker.example.com/posts';
 it('投稿時にMarkdownと縮小画像と保存先情報を一つのFormDataへまとめる', () => {
   const form = articleFormData(article);
   expect(form.get('markdown')).toBe(article.markdown);
-  expect(form.get('manifest')).toBe(JSON.stringify({ version: 1, articlePath: article.path, imageStorage: 'r2', images: [{ field: 'image-0', filename: 'fixed.jpg', path: 'images/fixed.jpg' }] }));
+  expect(form.get('manifest')).toBe(JSON.stringify({ version: 1, articlePath: article.path, images: [{ field: 'image-0', filename: 'fixed.jpg', path: 'images/fixed.jpg' }] }));
   const image = form.get('image-0');
   expect(image).toBeInstanceOf(File);
   if (!(image instanceof File)) throw new Error('送信画像がありません。');

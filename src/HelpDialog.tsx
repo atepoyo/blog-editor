@@ -9,7 +9,7 @@ export function HelpDialog({ language, onClose }: { language: Language; onClose:
       <div className="help-content">
         <section><h3>{text.helpWrite}</h3><p>{text.helpWriteBody}</p></section>
         <section><h3>{text.helpPhoto}</h3><p>{text.helpPhotoBody}</p></section>
-        <section><h3>{text.helpExport}</h3><p>{text.helpExportBody}</p></section>
+        <section><h3>{text.helpPost}</h3><p>{text.helpPostBody}</p></section>
         <section>
           <h3>{text.helpSettings}</h3>
           <dl className="help-settings">
@@ -19,7 +19,7 @@ export function HelpDialog({ language, onClose }: { language: Language; onClose:
             </div>
             <div>
               <dt>{text.workerUrl}</dt>
-              <dd><code>https://app.me.workers.dev/posts</code><p>{text.helpWorkerUrl}</p></dd>
+              <dd><code>https://editor.example.com/posts</code><p>{text.helpWorkerUrl}</p></dd>
             </div>
           </dl>
         </section>

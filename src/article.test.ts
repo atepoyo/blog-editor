@@ -3,7 +3,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { generateArticle, imageMarkdown, insertPhoto, localDate, parseEndpoint } from './article';
 import type { Photo, Settings } from './article';
 
-const settings: Settings = { imageStorage: 'r2', publicImageUrl: 'https://images.example.com/base/', workerUrl: '' };
+const settings: Settings = { publicImageUrl: 'https://images.example.com/base/', workerUrl: '' };
 const photo: Photo = { file: new File(['jpeg'], 'fixed.jpg', { type: 'image/jpeg' }), path: 'images/fixed.jpg' };
 const now = new Date(2026, 9, 7, 0, 10);
 
