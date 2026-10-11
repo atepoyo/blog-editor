@@ -40,6 +40,14 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
             }
           }}>{text.signIn}<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4h6v6M20 4 10 14M10 4H4v16h16v-6" /></svg></button>}
         </div>
+        <section className="field-group" aria-label={text.syncSetupTitle}>
+          <p className="hint"><strong>{text.syncSetupTitle}</strong></p>
+          <p className="hint">{text.syncSetupAuth}</p>
+          <p className="hint">{text.syncSetupCloudflare}</p>
+          <p className="hint">{text.syncSetupGateway}</p>
+          <p className="hint">{text.syncSetupUse}</p>
+          <a className="hint" href="https://github.com/atepoyo/blog-editor/blob/feat/atepoyo/editor-template/docs/cloudflare-setup.md" target="_blank" rel="noreferrer">{text.syncSetupGuide}</a>
+        </section>
         {error && <p role="alert" className="error">{text[error]}</p>}
         <button type="submit" className="primary full">{text.apply}</button>
       </form>
