@@ -1,7 +1,7 @@
 export type Language = 'ja' | 'en';
 
 const ja = {
-  handedOff: '記事と写真を渡しました。別タブで確認し、投稿を確定してください。',
+  handedOff: '記事と写真を渡しました。別ウィンドウで確認し、投稿を確定してください。',
   cancelHandoff: '受け渡しを中止',
   popupBlocked: '投稿画面を開けませんでした。ポップアップを許可して再試行してください。下書きと写真は残っています。',
   handoffFailed: '受け渡しを確認できませんでした。ログイン後に再試行してください。下書きと写真は残っています。',
@@ -16,7 +16,7 @@ const ja = {
   navigation: '言語・使い方・設定', help: '使い方',
   helpWrite: '記事を書く', helpWriteBody: 'タイトルと本文を入力します。本文にはMarkdownを使えます。',
   helpPhoto: '写真を添える', helpPhotoBody: '本文の長押しか、「写真を追加」で挿入します。キャプションは任意です。',
-  helpPost: '投稿する', helpPostBody: '投稿用URLを設定し、「投稿」で別タブに記事と写真を渡します。ログイン後、投稿先と内容を確認して投稿を確定します。',
+  helpPost: '投稿する', helpPostBody: '投稿用URLを設定し、「投稿」でポップアップに記事と写真を渡します。ログイン後、投稿先と内容を確認して投稿を確定します。',
   helpSettings: '設定に入れるURL',
   helpPublicUrl: 'Cloudflare R2の画像を配信するベースURLです。接続した独自ドメインを入れます。',
   helpImagePath: 'images/画像名.jpg は自動で付けます。写真を使う場合に必要です。',
@@ -62,7 +62,7 @@ export type MessageKey = keyof typeof ja;
 type Messages = Record<MessageKey, string>;
 
 const en = {
-  handedOff: 'Article and photos transferred. Review and confirm the post in the new tab.',
+  handedOff: 'Article and photos transferred. Review and confirm the post in the popup window.',
   cancelHandoff: 'Cancel transfer',
   popupBlocked: 'Could not open the posting page. Allow popups and retry. Your draft and photos are kept.',
   handoffFailed: 'Could not confirm the transfer. Sign in and retry. Your draft and photos are kept.',
@@ -77,7 +77,7 @@ const en = {
   navigation: 'Language, help and settings', help: 'Help',
   helpWrite: 'Write your post', helpWriteBody: 'Enter a title and write the body. You can use Markdown formatting in the body.',
   helpPhoto: 'Add a photo', helpPhotoBody: 'Press and hold in the body or choose “Add photo” to insert a photo. The caption is optional.',
-  helpPost: 'Post your article', helpPostBody: 'Set your posting URL and choose Post to open it in a new tab. Sign in, review the destination, text and photos, then confirm the post.',
+  helpPost: 'Post your article', helpPostBody: 'Set your posting URL and choose Post to open a popup with the article and photos. Sign in, review the destination and preview, then confirm the post.',
   helpSettings: 'URLs in Settings',
   helpPublicUrl: 'The base URL that serves your Cloudflare R2 images. Use your connected custom domain.',
   helpImagePath: 'images/filename.jpg is appended automatically. Required for posts with photos.',

@@ -6,11 +6,12 @@ import { encodeArticle, encodeDraftMessage, expectedWindow, handoffSignal, syncR
 import type { SyncResult } from './handoffProtocol';
 
 function transfer<T>(endpoint: string, signal: AbortSignal, messageFor: (id: string) => unknown,
+  popup: boolean,
   resultFrom: (data: unknown, id: string) => { result: T } | null): Promise<T> {
   if (!endpoint.trim()) throw new EditorError('workerRequired');
   const url = new URL(parseEndpoint(endpoint));
   // ユーザー操作の同期部分で開き、認証先に移動しても同じWindowを待つ。
-  const target = window.open(url.href, '_blank');
+  const target = window.open(url.href, '_blank', popup ? 'popup,width=720,height=900,resizable=yes,scrollbars=yes' : undefined);
   if (!target) throw new EditorError('popupBlocked');
   const id = crypto.randomUUID();
   return new Promise((resolve, reject) => {
@@ -47,7 +48,7 @@ function transfer<T>(endpoint: string, signal: AbortSignal, messageFor: (id: str
 }
 
 export function handoffArticle(article: Article, endpoint: string, signal: AbortSignal): Promise<void> {
-  return transfer(endpoint, signal, (id) => encodeArticle(article, id), (data, id) => {
+  return transfer(endpoint, signal, (id) => encodeArticle(article, id), true, (data, id) => {
     const result = handoffSignal.safeParse(data);
     return result.success && result.data.id === id && result.data.type === 'blog-md:received' ? { result: undefined } : null;
   });
@@ -60,7 +61,7 @@ export function handoffDraft(draft: Draft, endpoint: string, signal: AbortSignal
   const sameEndpoint = draft.sync?.endpoint === url || draft.sync?.endpoint === new URL('/posts', url).href;
   const baseRevision = sameEndpoint ? draft.sync?.baseRevision ?? null : null;
   const revision = sameEndpoint ? draft.sync?.changeId ?? crypto.randomUUID() : crypto.randomUUID();
-  return transfer(url, signal, (id) => encodeDraftMessage(draft, id, baseRevision, revision), (data, id) => {
+  return transfer(url, signal, (id) => encodeDraftMessage(draft, id, baseRevision, revision), false, (data, id) => {
     const result = syncResultSchema.safeParse(data);
     return result.success && result.data.id === id ? { result: result.data } : null;
   });

@@ -7,7 +7,7 @@ import { destinationSchema } from '../worker/destination';
 import type { Destination } from '../worker/destination';
 import { SyncConfirmation } from './SyncConfirmation';
 import type { SyncSession } from './SyncConfirmation';
-import { PhotoConfirmation } from './PhotoConfirmation';
+import { MarkdownPreview } from './MarkdownPreview';
 import { EditorError, messages } from './messages';
 import { postArticle } from './post';
 import './style.css';
@@ -21,10 +21,12 @@ function Publish() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [editorOrigin, setEditorOrigin] = useState('');
   useEffect(() => {
     let active = true;
     const opener: Window | null = window.opener;
     const origin = originSchema.safeParse(document.querySelector('meta[name="blog-editor-origin"]')?.getAttribute('content'));
+    if (origin.success) setEditorOrigin(origin.data);
     if (!opener || !origin.success) {
       setError('共通Editorの「投稿」から開き直してください。元の下書きと写真は残っています。');
       return;
@@ -73,33 +75,30 @@ function Publish() {
     <header className="app-header"><h1>{syncSession ? '下書きの同期' : '投稿の確認'}</h1></header>
     {!syncSession && <p>投稿先と本文・写真を確認してから、投稿を確定してください。</p>}
     {destination && !syncSession && <dl>
-      <dt>投稿画面</dt><dd>{location.origin}</dd>
-      <dt>GitHub</dt><dd>{destination.owner}/{destination.repository}</dd>
-      <dt>ブランチ</dt><dd>{destination.branch}</dd>
-      <dt>写真の保存先</dt><dd>この投稿先のR2バケット</dd>
+      <dt>投稿先</dt><dd>GitHub {destination.owner}/{destination.repository}</dd>
     </dl>}
     {!article && !syncSession && !error && <p role="status">共通Editorから記事と写真を受け取るのを待っています。</p>}
     {syncSession && <SyncConfirmation session={syncSession} />}
     {article && <>
-      <h2>{article.path}</h2>
-      <pre className="article-confirmation">{article.markdown}</pre>
-      <div className="confirmation-photos">{article.images.map((photo) => <PhotoConfirmation key={photo.path} file={photo.file} path={photo.path} />)}</div>
-      <p>{saved ? '共通Editorには元の下書きと写真が残っています。' : '投稿はまだ確定していません。共通Editorには元の下書きと写真が残っています。'}</p>
-      {!saved && <p>同日の記事がある場合、保存名に -2、-3… を付けます。</p>}
+      <MarkdownPreview article={article} />
       <button className="primary full" disabled={!destination || busy || saved} onClick={async () => {
         if (busy || saved) return;
         setBusy(true); setError(null);
         try {
-          const path = await postArticle(article, new URL('/posts', location.origin).href);
-          setArticle({ ...article, path }); setSaved(true);
+          await postArticle(article, new URL('/posts', location.origin).href);
+          setSaved(true);
         }
         catch (reason) { setError(reason instanceof EditorError ? messages.ja[reason.key] : messages.ja.operationFailed); }
         finally { setBusy(false); }
       }}>投稿を確定</button>
     </>}
     {busy && <p role="status">投稿中…</p>}
-    {saved && <p role="status">投稿しました。{article?.path}</p>}
+    {saved && <p role="status">投稿しました。</p>}
     {error && <p role="alert" className="error">{error}</p>}
+    {editorOrigin && <button className="quiet full" type="button" onClick={() => {
+      window.close();
+      if (!window.closed) window.location.assign(editorOrigin);
+    }}>元の画面に戻る</button>}
   </main>;
 }
 

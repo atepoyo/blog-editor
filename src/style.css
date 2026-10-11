@@ -165,7 +165,10 @@ dialog form { display: grid; gap: var(--space-2); }
 .publish-page { display: grid; gap: var(--space-2); }
 .publish-page h1 { font-size: 24px; margin: 0; }
 .publish-page dd { margin: 0 0 12px; overflow-wrap: anywhere; }
-.article-confirmation { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; padding: 16px; background: var(--surface); }
-.confirmation-photos figure { margin: 0 0 16px; }
-.confirmation-photos img { max-width: 100%; height: auto; }
-.confirmation-photos figcaption { font-size: 13px; overflow-wrap: anywhere; }
+.article-preview { min-width: 0; overflow-wrap: anywhere; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+.article-preview > :first-child { margin-top: 0; }
+.article-preview > :last-child { margin-bottom: 0; }
+.article-preview p, .article-preview ul, .article-preview ol, .article-preview blockquote, .article-preview pre { margin-block: var(--space-2); }
+.article-preview img { max-width: 100%; height: auto; }
+.article-preview pre { overflow-x: auto; padding: var(--space-1); background: #f6f4f1; }
+.article-preview blockquote { margin-inline: 0; padding-inline-start: var(--space-2); border-inline-start: 3px solid var(--border); color: var(--muted); }

@@ -23,7 +23,7 @@ The shared Editor is served publicly. A user's `worker/posting-ui.example.jsonc`
 
 1. Enter a title and write the body in Markdown.
 2. Press and hold in the body or choose **Add photo** to insert a photo. Captions are optional.
-3. Choose **Post** to open your protected posting page and transfer the article and photos directly between the two tabs. Review the Markdown, photos, and destination there, then click **投稿を確定** to save. The title and date are included in the saved Markdown; photos are stored in your R2 bucket.
+3. Choose **Post** to open your protected posting page in a popup and transfer the article and photos directly between the two windows. Review the rendered article and GitHub repository there, then click **投稿を確定** to save. The title and date are included in the saved Markdown; photos are stored in your R2 bucket.
 
 Open **Help** for instructions and **Settings** to configure your public R2 image URL and protected posting page URL.
 

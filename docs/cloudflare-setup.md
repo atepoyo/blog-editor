@@ -100,7 +100,7 @@ GatewayのCustom Domainを `publish.example.com` に設定します。Gatewayは
 
 Secretの入力にはGitHub Appから取得したPEMを使用します。初回導入時はGatewayのCustom Domainを有効にする前にAccess保護と両WorkerのAUDを設定し、最終設定を再デプロイします。Gatewayへ秘密鍵やR2 Bindingを登録しないでください。
 
-共通Editorで公開画像URLと自分の投稿画面URL（例: `https://publish.example.com/publish`）を設定します。**Post**を押すと別タブを開き、Access認証後に投稿画面が本文・写真・投稿先を表示します。本人が「投稿を確定」を押した後にだけ、同じoriginの `GET /posts?path=...` とmultipart `POST /posts` を送ります。Editorは受け渡しreceiptだけを受け取り、投稿成功結果や認証情報は受け取りません。投稿完了後もEditorの下書きは維持します。
+共通Editorで公開画像URLと自分の投稿画面URL（例: `https://publish.example.com/publish`）を設定します。**Post**を押すとポップアップを開き、Access認証後に投稿画面がGitHubリポジトリとレンダリングした記事プレビューを表示します。本人が「投稿を確定」を押した後にだけ、同じoriginの `GET /posts?path=...` とmultipart `POST /posts` を送ります。Editorは受け渡しreceiptだけを受け取り、投稿成功結果や認証情報は受け取りません。投稿完了後もEditorの下書きは維持します。
 
 端末間で下書きを移すときは、両方の端末で同じ投稿用URL、Publisher、非公開 `DRAFTS` バケットを使います。Editorの「クラウドに保存」「クラウドから取得」から直接通信します。Gatewayの `COMMON_EDITOR_ORIGIN` に共通Editorのoriginを指定します。認証が必要な場合は設定の認証ボタンからログインします。自動fetchや別の投稿環境の探索・共有はしません。空または同じ内容の端末にはそのまま取り込み、異なる内容は両方を保って明示選択で解決します。
 
