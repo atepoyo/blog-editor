@@ -15,6 +15,5 @@ export function useDraft() {
   return { ...state, loading: state.status === 'loading', setDraft: controller.update,
     clearDraft: controller.clear,
     retrySync: controller.retry, resolveConflict: controller.resolve,
-    acceptManualSync: controller.acceptManualSync,
-    exportConflict: () => controller.exportConflict() };
+    acceptManualSync: controller.acceptManualSync };
 }

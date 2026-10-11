@@ -25,7 +25,7 @@ export function App() {
   const [clearDraftOpen, setClearDraftOpen] = useState(false);
   const [replaceArticleOpen, setReplaceArticleOpen] = useState(false);
   const text = messages[language];
-  const { draft, setDraft, clearDraft, loading, status, syncStatus, acceptManualSync, resolveConflict, exportConflict } = useDraft();
+  const { draft, setDraft, clearDraft, loading, status, syncStatus, acceptManualSync, resolveConflict } = useDraft();
   const { title, body, photos, settings } = draft;
   const [pendingPhoto, setPendingPhoto] = useState<Photo | null>(null);
   const [caption, setCaption] = useState('');
@@ -169,18 +169,6 @@ export function App() {
         {busy && <p className="hint" role="status">{text.processing}</p>}
         <div className="publish-row">
           <button className="quiet photo-add" type="button" disabled={disabled} onClick={pickPhoto}>＋ {text.addPhoto}</button>
-          <button className="quiet edit-post" type="button" disabled={disabled} onClick={() => void run(async () => {
-            if (!navigator.onLine) throw new EditorError('offlinePost');
-            const controller = new AbortController();
-            handoff.current = controller;
-            try {
-              const article = await selectArticleForEditing(settings.workerUrl, controller.signal);
-              if (title.trim() || body.trim() || photos.length) {
-                setPendingArticle(article);
-                setReplaceArticleOpen(true);
-              } else loadPublishedArticle(article);
-            } finally { handoff.current = null; }
-          })}>{text.editPublished}</button>
           <button type="button" className="primary" disabled={disabled} onClick={() => void run(async () => {
             if (!navigator.onLine) throw new EditorError('offlinePost');
             const article = currentArticle();
@@ -207,6 +195,18 @@ export function App() {
               <p className={['failed', 'unauthorized', 'conflict'].includes(syncStatus) ? 'error' : 'hint'} aria-live="polite" data-testid="sync-status">{text[syncStatus === 'disconnected' ? 'disconnected' : syncMessages[syncStatus]]}</p>
             </div>
           </div>
+          <button className="quiet edit-post" type="button" disabled={disabled} onClick={() => void run(async () => {
+            if (!navigator.onLine) throw new EditorError('offlinePost');
+            const controller = new AbortController();
+            handoff.current = controller;
+            try {
+              const article = await selectArticleForEditing(settings.workerUrl, controller.signal);
+              if (title.trim() || body.trim() || photos.length) {
+                setPendingArticle(article);
+                setReplaceArticleOpen(true);
+              } else loadPublishedArticle(article);
+            } finally { handoff.current = null; }
+          })}>{text.editPublished}</button>
           {settings.workerUrl && <div className="sync-actions">
             <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('save'))}>{text.syncSave}</button>
             <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('load'))}>{text.syncLoad}</button>
@@ -217,13 +217,6 @@ export function App() {
               <button className="quiet" type="button" disabled={status !== 'saved'} onClick={() => void run(() => resolveConflict('cloud'))}>{text.syncUseCloud}</button>
             </div>
           </section>}
-          {(draft.sync?.conflict || draft.sync?.backup) && <button className="quiet sync-export" type="button" onClick={() => void run(async () => {
-            const data = await exportConflict();
-            const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
-            const link = document.createElement('a');
-            link.href = url; link.download = 'blog-md-conflict.json'; link.click();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          })}>{text.syncExport}</button>}
         </div>
         <div className="draft-management">
           <button type="button" className="quiet danger-text" aria-haspopup="dialog"

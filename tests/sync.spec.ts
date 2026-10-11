@@ -161,7 +161,7 @@ test('オフラインの再起動と写真を保持し復帰や保存失敗で�
   expect((await remote())?.photos).toHaveLength(1); expect(articleCalls).toBe(0);
 });
 
-test('同時編集を上書きせず両方の本文と写真を保持し選択後も他方を書き出せる', async ({ browser, baseURL }) => {
+test('同時編集を上書きせず両方の本文と写真を保持し使う内容を選択できる', async ({ browser, baseURL }) => {
   const one = await browser.newContext({ baseURL }); const two = await browser.newContext({ baseURL });
   try {
     const local = await connect(one); await local.getByLabel('タイトル', { exact: true }).fill('共通の下書き'); await saveSync(local);
@@ -192,13 +192,10 @@ test('同時編集を上書きせず両方の本文と写真を保持し選択�
         if (language === 'en') await local.getByRole('button', { name: '日本語', exact: true }).click();
       }
     }
-    const event = local.waitForEvent('download'); await local.getByRole('button', { name: '双方の本文・写真を保存' }).click(); const download = await event;
-    const stream = await download.createReadStream(); if (!stream) throw new Error('保存ファイルなし'); const chunks: Buffer[] = []; for await (const chunk of stream) chunks.push(chunk);
-    const archive = z.object({ local: cloudDraftSchema, cloud: cloudDraftSchema }).parse(JSON.parse(Buffer.concat(chunks).toString()));
-    expect(archive.local.body).toBe(localBefore.body); expect(archive.local.photos).toHaveLength(1); expect(archive.cloud).toEqual(cloudBefore);
+    await expect(local.getByRole('button', { name: '双方の本文・写真を保存' })).toHaveCount(0);
     await local.getByRole('button', { name: '別の端末の内容を使う', exact: true }).click(); await locallySaved(local);
     expect(await stored(local)).toEqual(await stored(other));
-    await expect(local.getByRole('button', { name: '双方の本文・写真を保存' })).toBeVisible(); expect(articleCalls).toBe(0);
+    await expect(local.getByRole('button', { name: '双方の本文・写真を保存' })).toHaveCount(0); expect(articleCalls).toBe(0);
   } finally { await one.close(); await two.close(); }
 });
 
@@ -244,5 +241,5 @@ test('取得した写真が同じパスでも選択した版の実体を保存�
   const local = await stored(page); expect(local.body).toBe(updated.body);
   expect(local.images[0]?.bytes).toEqual([...Buffer.from(updated.photos[0]?.data ?? '', 'base64')]);
   await page.reload(); await locallySaved(page); expect(await stored(page)).toEqual(local);
-  await expect(page.getByRole('button', { name: '双方の本文・写真を保存' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '双方の本文・写真を保存' })).toHaveCount(0);
 });

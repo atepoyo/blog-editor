@@ -269,8 +269,4 @@ export class DraftController {
       this.emit({ syncStatus: 'conflict' });
     }
   };
-  async exportConflict(): Promise<{ local: CloudDraft; cloud: CloudDraft | null }> {
-    const draft = this.state.draft;
-    return { local: await encodeDraft(draft, draft.sync?.changeId ?? crypto.randomUUID()), cloud: draft.sync?.conflict ?? draft.sync?.backup ?? null };
-  }
 }
