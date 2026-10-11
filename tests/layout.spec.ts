@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 for (const width of [320, 390, 768, 1440]) {
   for (const language of ['ja', 'en']) {
-    test(`${width}px幅の${language}表示で入力欄の形と余白を揃えフォーカスでも位置を保つ`, async ({ page }) => {
+    test(`${width}px幅の${language}表示で編集面と操作の優先順位を保ちダイアログを使える`, async ({ page }) => {
       await page.setViewportSize({ width, height: 844 });
       await page.goto('/');
       if (language === 'en') await page.getByRole('button', { name: 'English', exact: true }).click();
@@ -11,21 +11,23 @@ for (const width of [320, 390, 768, 1440]) {
       const layout = await page.evaluate(() => {
         const main = document.querySelector('main');
         const header = document.querySelector('.app-header');
+        const editor = document.querySelector('.editor');
         const title = document.querySelector('.title-input');
         const body = document.querySelector('.body-input');
-        if (!(main instanceof HTMLElement) || !(header instanceof HTMLElement) || !(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) throw new Error('入力欄を取得できません。');
+        if (!(main instanceof HTMLElement) || !(header instanceof HTMLElement) || !(editor instanceof HTMLElement) || !(title instanceof HTMLInputElement) || !(body instanceof HTMLTextAreaElement)) throw new Error('入力欄を取得できません。');
         const mainRect = main.getBoundingClientRect();
         const headerRect = header.getBoundingClientRect();
         const titleRect = title.getBoundingClientRect();
         const bodyRect = body.getBoundingClientRect();
+        const editorRect = editor.getBoundingClientRect();
         const titleStyle = getComputedStyle(title);
         const bodyStyle = getComputedStyle(body);
         return {
           title: { x: titleRect.x, width: titleRect.width, height: titleRect.height, radius: titleStyle.borderTopLeftRadius, fontSize: titleStyle.fontSize, padding: titleStyle.paddingLeft },
           body: { x: bodyRect.x, width: bodyRect.width, radius: bodyStyle.borderTopLeftRadius, fontSize: bodyStyle.fontSize, padding: bodyStyle.paddingLeft },
-          horizontalInset: titleRect.left - mainRect.left,
+          horizontalInset: editorRect.left - mainRect.left,
           topInset: headerRect.top - mainRect.top,
-          headerGap: titleRect.top - headerRect.bottom,
+          headerGap: editorRect.top - headerRect.bottom,
           overflow: document.documentElement.scrollWidth > innerWidth,
         };
       });
@@ -34,10 +36,16 @@ for (const width of [320, 390, 768, 1440]) {
       expect(layout.title.radius).toBe(layout.body.radius);
       expect(layout.title.padding).toBe(layout.body.padding);
       expect(layout.title.fontSize).toBe(layout.body.fontSize);
-      expect(parseFloat(layout.title.fontSize)).toBeGreaterThanOrEqual(16);
+      expect(parseFloat(layout.body.fontSize)).toBeGreaterThanOrEqual(16);
       expect(layout.topInset).toBe(layout.horizontalInset);
       expect(layout.headerGap).toBeLessThanOrEqual(layout.horizontalInset);
       expect(layout.overflow).toBe(false);
+      if (width < 640) {
+        const photoButton = await page.locator('.photo-add').boundingBox();
+        const photoHint = await page.locator('.editor-notes span').boundingBox();
+        if (!photoButton || !photoHint) throw new Error('写真追加の補足文を取得できません。');
+        expect(photoHint.x).toBe(photoButton.x);
+      }
       const brand = await page.locator('.brand').boundingBox();
       const nav = await page.getByRole('navigation').boundingBox();
       if (!brand || !nav) throw new Error('ヘッダーを取得できません。');
@@ -47,10 +55,21 @@ for (const width of [320, 390, 768, 1440]) {
       expect(nav.x).toBeGreaterThan(brand.x + brand.width);
       const postButton = page.getByRole('button', { name: language === 'ja' ? '投稿' : 'Post', exact: true });
       const postRect = await postButton.boundingBox();
-      const actionsRect = await page.locator('.actions').boundingBox();
+      const actionsRect = await page.locator('.publish-row').boundingBox();
       if (!actionsRect || !postRect) throw new Error('投稿操作を取得できません。');
-      expect(postRect.x).toBe(actionsRect.x);
-      expect(Math.abs(postRect.width - actionsRect.width)).toBeLessThan(1);
+      expect(Math.abs(postRect.x + postRect.width - actionsRect.x - actionsRect.width)).toBeLessThan(1);
+      const deletion = await page.getByRole('button', { name: language === 'ja' ? '下書きを削除' : 'Delete draft', exact: true }).boundingBox();
+      const syncPanel = await page.locator('.sync-panel').boundingBox();
+      if (!deletion || !syncPanel) throw new Error('下書き操作を取得できません。');
+      expect(deletion.y).toBeGreaterThan(syncPanel.y + syncPanel.height);
+      expect(postRect.width).toBeLessThan(actionsRect.width);
+      const localStatus = await page.locator('.local-status').boundingBox();
+      if (!localStatus) throw new Error('保存状態を取得できません。');
+      expect(localStatus.x).toBe(actionsRect.x);
+      expect(localStatus.y).toBeGreaterThanOrEqual(postRect.y + postRect.height);
+      const photoRect = await page.locator('.photo-add').boundingBox();
+      if (!photoRect) throw new Error('写真追加操作を取得できません。');
+      expect(photoRect.y).toBe(postRect.y);
       await expect(page.getByRole('button', { name: /Markdownをコピー|Copy Markdown/ })).toHaveCount(0);
       const before = await title.boundingBox();
       await title.focus();
@@ -133,6 +152,21 @@ for (const width of [320, 390, 768, 1440]) {
       expect(captionGaps).toEqual([16, 16]);
       await page.screenshot({ path: `test-results/caption-${width}-${language}.png`, fullPage: true });
       await page.getByRole('button', { name: language === 'ja' ? '閉じる' : 'Close', exact: true }).click();
+      await expect(page.getByTestId('draft-status')).toHaveAttribute('data-state', 'saved');
+      await expect(page.getByTestId('draft-status')).toHaveText(language === 'ja' ? '下書きはオフラインでも開けます。' : 'Drafts can be opened offline.');
+      await page.getByRole('button', { name: language === 'ja' ? '下書きを削除' : 'Delete draft', exact: true }).click();
+      const deleteDialog = page.getByRole('dialog', { name: language === 'ja' ? '下書きを削除しますか？' : 'Delete this draft?', exact: true });
+      const cancel = page.getByRole('button', { name: language === 'ja' ? 'キャンセル' : 'Cancel', exact: true });
+      const confirm = page.getByRole('button', { name: language === 'ja' ? '削除する' : 'Delete', exact: true });
+      const cancelRect = await cancel.boundingBox();
+      const confirmRect = await confirm.boundingBox();
+      if (!cancelRect || !confirmRect) throw new Error('削除確認操作を取得できません。');
+      expect(confirmRect.x).toBeGreaterThan(cancelRect.x + cancelRect.width);
+      expect(confirmRect.y).toBe(cancelRect.y);
+      expect(await deleteDialog.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(false);
+      await page.screenshot({ path: `test-results/delete-${width}-${language}.png` });
+      await cancel.click();
+      await expect(body).toHaveValue(language === 'ja' ? '入力した本文\n次の行も同じ位置から始まります。' : 'The body text starts here.\nThe next line shares the same inset.');
     });
   }
 }

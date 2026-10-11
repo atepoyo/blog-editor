@@ -6,20 +6,25 @@ import { Modal } from './Modal';
 import { SettingsDialog } from './SettingsDialog';
 import { HelpDialog } from './HelpDialog';
 import { resizePhoto } from './photo';
-import { postArticle } from './post';
+import { handoffArticle } from './handoff';
+import { createCloudStore, SyncError } from './cloudDraft';
+import { encodeDraft } from './syncProtocol';
 import { EditorError, messages } from './messages';
 import type { Language, MessageKey } from './messages';
 import { useDraft } from './useDraft';
-import type { DraftStatus } from './useDraft';
+import type { DraftStatus, SyncStatus } from './useDraft';
 import { registerOffline } from './offline';
 
-const draftMessages = { loading: 'draftLoading', saving: 'draftSaving', saved: 'draftSaved', readFailed: 'draftReadFailed', saveFailed: 'draftSaveFailed' } satisfies Record<DraftStatus, MessageKey>;
+const draftMessages = { loading: 'draftLoading', saving: 'draftSaving', readFailed: 'draftReadFailed', saveFailed: 'draftSaveFailed' } satisfies Record<Exclude<DraftStatus, 'saved'>, MessageKey>;
+const syncMessages = { disconnected: 'syncDisconnected', checking: 'syncChecking', pending: 'syncPending', syncing: 'syncSending',
+  synced: 'syncSaved', offline: 'syncOffline', failed: 'syncFailed', unauthorized: 'syncUnauthorized', conflict: 'syncConflict' } satisfies Record<SyncStatus, MessageKey>;
 
 export function App() {
   const [language, setLanguage] = useState<Language>('ja');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [clearDraftOpen, setClearDraftOpen] = useState(false);
   const text = messages[language];
-  const { draft, setDraft, loading, status } = useDraft();
+  const { draft, setDraft, clearDraft, loading, status, syncStatus, acceptManualSync, resolveConflict, exportConflict } = useDraft();
   const { title, body, photos, settings } = draft;
   const [pendingPhoto, setPendingPhoto] = useState<Photo | null>(null);
   const [caption, setCaption] = useState('');
@@ -28,13 +33,14 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const disabled = busy || loading;
   const [offline, setOffline] = useState<'offlinePreparing' | 'offlineReady' | 'offlineFailed' | null>(import.meta.env.PROD ? 'offlinePreparing' : null);
-  const draftMessage = draftMessages[status];
+  const draftMessage = status === 'saved' ? null : draftMessages[status];
   const [notice, setNotice] = useState<{ path: string } | null>(null);
   const [error, setError] = useState<MessageKey | null>(null);
   const textArea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const cursor = useRef(0);
   const operation = useRef(false);
+  const handoff = useRef<AbortController | null>(null);
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
 
   function cancelPress() {
@@ -42,6 +48,7 @@ export function App() {
     press.current = null;
   }
   useEffect(() => cancelPress, []);
+  useEffect(() => () => handoff.current?.abort(), []);
   useEffect(() => { document.documentElement.lang = language; }, [language]);
   useEffect(() => {
     if (!import.meta.env.PROD) return;
@@ -90,14 +97,38 @@ export function App() {
     return generateArticle(title, body, photos, settings, new Date());
   }
 
+  async function syncDraft(action: 'save' | 'load') {
+    if (!navigator.onLine) throw new EditorError('syncOffline');
+    const expected = draft;
+    const endpoint = new URL('/posts', settings.workerUrl).href;
+    const cloud = createCloudStore();
+    const controller = new AbortController();
+    try {
+      if (action === 'load') {
+        const result = await cloud.load(endpoint, controller.signal);
+        if (!result) throw new EditorError('syncEmpty');
+        await acceptManualSync(result, 'loaded', expected);
+      } else {
+        const sameEndpoint = expected.sync?.endpoint === settings.workerUrl || expected.sync?.endpoint === endpoint;
+        const revision = sameEndpoint ? expected.sync?.changeId ?? crypto.randomUUID() : crypto.randomUUID();
+        const value = await encodeDraft(expected, revision);
+        const result = await cloud.save(endpoint, sameEndpoint ? expected.sync?.baseRevision ?? null : null, value, controller.signal);
+        await acceptManualSync(result.draft, result.conflict ? 'conflict' : 'saved', expected);
+      }
+    } catch (reason) {
+      if (reason instanceof SyncError) throw new EditorError(reason.kind === 'unauthorized' ? 'syncUnauthorized' : 'syncFailed');
+      throw reason;
+    }
+  }
+
   return (
     <main>
       <header className="app-header">
-        <div className="brand">Blog<span className="brand-extension">.md</span></div>
+        <div className="brand">Blog.md</div>
         <nav aria-label={text.navigation}>
           <button className="quiet language" type="button" disabled={disabled} onClick={() => setLanguage(language === 'ja' ? 'en' : 'ja')}>{language === 'ja' ? 'English' : '日本語'}</button>
           <button className="quiet" type="button" aria-haspopup="dialog" disabled={disabled} onClick={() => setHelpOpen(true)}>{text.help}</button>
-          <button className="quiet" type="button" disabled={disabled} onClick={() => setSettingsOpen(true)}>{text.settings}</button>
+          <button className="quiet" type="button" aria-haspopup="dialog" disabled={disabled} onClick={() => setSettingsOpen(true)}>{text.settings}</button>
         </nav>
       </header>
       <section className="editor" aria-label={text.editor}>
@@ -114,7 +145,6 @@ export function App() {
             if (!disabled) { cursor.current = event.currentTarget.selectionStart; setPhotoMenuOpen(true); }
           }}
         />
-        <div className="photo-toolbar"><button className="quiet" type="button" disabled={disabled} onClick={pickPhoto}>＋ {text.addPhoto}</button><span>{photos.length ? text.photoCount.replace('{count}', String(photos.length)) : text.photoHint}</span></div>
         <input ref={fileInput} type="file" accept="image/*,.heic,.heif" aria-label={text.photoInput} className="file-input" onChange={(event) => {
           const file = event.currentTarget.files?.[0];
           event.currentTarget.value = '';
@@ -122,24 +152,70 @@ export function App() {
         }} />
       </section>
       <footer className="editor-footer">
-        <div className="field-help">
-          <p className="hint">{text.imageHint}</p>
-          <p className={status === 'readFailed' || status === 'saveFailed' ? 'error' : 'hint'} aria-live="polite">{text[draftMessage]}</p>
-          {offline && <p className={offline === 'offlineFailed' ? 'error' : 'hint'} aria-live="polite">{text[offline]}</p>}
-        </div>
         {error && <p className="error" role="alert">{text[error]}</p>}
-        {notice && <p className="notice" role="status">{text.posted} {notice.path}</p>}
+        {notice && <p className="notice" role="status">{text.handedOff} {notice.path}</p>}
         {busy && <p className="hint" role="status">{text.processing}</p>}
-        <div className="actions">
+        <div className="publish-row">
+          <button className="quiet photo-add" type="button" disabled={disabled} onClick={pickPhoto}>＋ {text.addPhoto}</button>
           <button type="button" className="primary" disabled={disabled} onClick={() => void run(async () => {
             if (!navigator.onLine) throw new EditorError('offlinePost');
             const article = currentArticle();
-            await postArticle(article, settings.workerUrl);
+            const controller = new AbortController();
+            handoff.current = controller;
+            try { await handoffArticle(article, settings.workerUrl, controller.signal); }
+            finally { handoff.current = null; }
             setNotice({ path: article.path });
-          })}>{text.post}</button>
+          })}>{text.post}<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
         </div>
-        <p className="connection">{settings.workerUrl ? text.connectionPending : text.disconnected}</p>
+        <div className="editor-notes">
+          <p className="hint"><span>{photos.length ? text.photoCount.replace('{count}', String(photos.length)) : text.photoHint}</span></p>
+          <p className="hint">{text.imageHint}</p>
+          <div className="local-status" data-testid="draft-status" data-state={status}>
+            {draftMessage && <p className={status === 'readFailed' || status === 'saveFailed' ? 'error' : 'hint'} aria-live="polite">{text[draftMessage]}</p>}
+            {offline && (offline !== 'offlineReady' || status === 'saved') && <p className={offline === 'offlineFailed' ? 'error' : 'hint'} aria-live="polite">{text[offline]}</p>}
+          </div>
+        </div>
+        {busy && handoff.current && <button type="button" className="quiet" onClick={() => handoff.current?.abort()}>{text.cancelHandoff}</button>}
+        <div className="sync-panel">
+          <div className="sync-summary">
+            <div className="sync-description">
+              <p className={['failed', 'unauthorized', 'conflict'].includes(syncStatus) ? 'error' : 'hint'} aria-live="polite" data-testid="sync-status">{text[syncStatus === 'disconnected' ? 'disconnected' : syncMessages[syncStatus]]}</p>
+            </div>
+          </div>
+          {settings.workerUrl && <div className="sync-actions">
+            <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('save'))}>{text.syncSave}</button>
+            <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('load'))}>{text.syncLoad}</button>
+          </div>}
+          {draft.sync?.conflict && <section className="sync-conflict" aria-label={text.syncConflict}>
+            <div className="conflict-actions">
+              <button className="quiet" type="button" disabled={status !== 'saved'} onClick={() => void run(() => resolveConflict('local'))}>{text.syncUseLocal}</button>
+              <button className="quiet" type="button" disabled={status !== 'saved'} onClick={() => void run(() => resolveConflict('cloud'))}>{text.syncUseCloud}</button>
+            </div>
+          </section>}
+          {(draft.sync?.conflict || draft.sync?.backup) && <button className="quiet sync-export" type="button" onClick={() => void run(async () => {
+            const data = await exportConflict();
+            const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+            const link = document.createElement('a');
+            link.href = url; link.download = 'blog-md-conflict.json'; link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          })}>{text.syncExport}</button>}
+        </div>
+        <div className="draft-management">
+          <button type="button" className="quiet danger-text" aria-haspopup="dialog"
+            disabled={disabled || status !== 'saved'}
+            onClick={() => setClearDraftOpen(true)}>{text.clearDraft}</button>
+        </div>
       </footer>
+      {clearDraftOpen && <Modal title={text.confirmClearDraft} closeLabel={text.close} onClose={() => setClearDraftOpen(false)}>
+        <p>{text.clearDraftWarning}</p>
+        <div className="dialog-actions">
+          <button className="quiet" type="button" onClick={() => setClearDraftOpen(false)}>{text.cancel}</button>
+          <button className="danger" type="button" onClick={() => {
+            setClearDraftOpen(false);
+            void run(async () => { await clearDraft(); cursor.current = 0; });
+          }}>{text.confirmDelete}</button>
+        </div>
+      </Modal>}
       {helpOpen && <HelpDialog language={language} onClose={() => setHelpOpen(false)} />}
       {settingsOpen && <SettingsDialog settings={settings} language={language} onClose={() => setSettingsOpen(false)} onSave={(next) => { setDraft((current) => ({ ...current, settings: next })); setSettingsOpen(false); setNotice(null); setError(null); }} />}
       {photoMenuOpen && <Modal title={text.addPhoto} closeLabel={text.close} onClose={() => setPhotoMenuOpen(false)}>

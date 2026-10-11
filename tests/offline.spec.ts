@@ -3,9 +3,10 @@ import type { Page } from '@playwright/test';
 import { readFile, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { z } from 'zod';
+import { preparePosting, postingUrl } from './postingHarness';
 
 async function saved(page: Page) {
-  await expect(page.getByText('下書きはこのブラウザに保存済みです。', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('draft-status')).toHaveAttribute('data-state', 'saved');
 }
 
 async function addPhoto(page: Page) {
@@ -51,14 +52,14 @@ async function stored(page: Page) {
 
 test('通信を切ってタブを開き直しても記事・縮小写真・設定を復元し明示操作でだけ投稿する', async ({ page, context }) => {
   await page.goto('/');
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+  await preparePosting(context, page.url());
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
   await page.getByLabel('タイトル', { exact: true }).fill('オフラインの記事');
   await page.getByLabel('本文', { exact: true }).fill('書きかけの本文');
   await addPhoto(page);
   await page.getByRole('button', { name: '設定', exact: true }).click();
   await page.getByLabel('画像の公開URL').fill('https://img.example.com/');
-  const workerUrl = new URL('/worker', page.url()).href;
-  await page.getByLabel('Worker URL').fill(workerUrl);
+  await page.getByLabel('投稿用URL').fill(postingUrl);
   await page.getByRole('button', { name: '設定を反映' }).click();
   await saved(page);
   const before = await stored(page);
@@ -76,7 +77,7 @@ test('通信を切ってタブを開き直しても記事・縮小写真・設�
   await expect(reopened.getByText('1枚を準備済み', { exact: true })).toBeVisible();
   expect(await stored(reopened)).toEqual(before);
   await reopened.getByRole('button', { name: '設定', exact: true }).click();
-  await expect(reopened.getByLabel('Worker URL')).toHaveValue(workerUrl);
+  await expect(reopened.getByLabel('投稿用URL')).toHaveValue(postingUrl);
   await expect(reopened.getByLabel('画像の公開URL')).toHaveValue('https://img.example.com/');
   await reopened.getByRole('button', { name: '閉じる', exact: true }).click();
   await reopened.getByRole('button', { name: '投稿', exact: true }).click();
@@ -90,13 +91,17 @@ test('通信を切ってタブを開き直しても記事・縮小写真・設�
   expect(await stored(reopened)).toEqual(offlineDraft);
   await expect(reopened.getByLabel('本文', { exact: true })).toHaveValue(/オフラインで追記/);
   const methods: string[] = [];
-  await context.route('**/worker**', async (route) => {
+  await context.route('**/posts**', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('destination') === '1') {
+      await route.fulfill({ json: { owner: 'owner', repository: 'blog', branch: 'main' } });
+      return;
+    }
     methods.push(route.request().method());
     if (route.request().method() === 'GET') return route.fulfill({ json: { exists: false } });
     const contentType = await route.request().headerValue('content-type');
     const bytes = route.request().postDataBuffer();
     if (!contentType || !bytes) throw new Error('投稿データがありません。');
-    const form = await new Request(workerUrl, { method: 'POST', headers: { 'content-type': contentType }, body: new Uint8Array(bytes) }).formData();
+    const form = await new Request(route.request().url(), { method: 'POST', headers: { 'content-type': contentType }, body: new Uint8Array(bytes) }).formData();
     const markdown = z.string().parse(form.get('markdown'));
     expect(markdown).toContain('title: "オフラインの記事"');
     expect(markdown).toContain('オフラインで追記');
@@ -116,18 +121,24 @@ test('通信を切ってタブを開き直しても記事・縮小写真・設�
   await expect.poll(() => reopened.evaluate(() => navigator.onLine)).toBe(true);
   await reopened.waitForTimeout(300);
   expect(methods).toEqual([]);
-  await reopened.getByRole('button', { name: '投稿', exact: true }).click();
-  await expect(reopened.getByRole('status')).toContainText('投稿しました');
+  const [posting] = await Promise.all([
+    reopened.waitForEvent('popup'),
+    reopened.getByRole('button', { name: '投稿', exact: true }).click(),
+  ]);
+  await expect(posting.getByRole('heading', { name: '投稿の確認', exact: true })).toBeVisible();
+  await expect(reopened.getByRole('status')).toContainText('記事と写真を渡しました');
+  await posting.getByRole('button', { name: '投稿を確定', exact: true }).click();
+  await expect(posting.getByRole('status')).toContainText('投稿しました');
   expect(methods).toEqual(['GET', 'POST']);
   const cachePaths = await reopened.evaluate(async () => {
     const paths: string[] = [];
     for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) paths.push(new URL(request.url).pathname);
     return paths;
   });
-  expect(cachePaths).toContain('/index.html');
+  expect(cachePaths).toContain('/');
   expect(cachePaths.some((path) => path.endsWith('.css'))).toBe(true);
   expect(cachePaths.some((path) => path.endsWith('.js'))).toBe(true);
-  expect(cachePaths.every((path) => path === '/index.html' || path.startsWith('/assets/'))).toBe(true);
+  expect(cachePaths.every((path) => path === '/' || path.startsWith('/assets/'))).toBe(true);
   await reopened.screenshot({ path: 'test-results/offline-restored.png', fullPage: true });
 });
 
@@ -211,7 +222,7 @@ for (const oldStorage of ['r2', 'github']) {
     expect((await stored(page)).images).toEqual(before.images);
     await page.getByRole('button', { name: '設定', exact: true }).click();
     await expect(page.getByLabel('画像の公開URL')).toHaveValue(oldStorage === 'r2' ? record.settings.publicImageUrl : '');
-    await expect(page.getByLabel('Worker URL')).toHaveValue(record.settings.workerUrl);
+    await expect(page.getByLabel('投稿用URL')).toHaveValue(record.settings.workerUrl);
     await expect(page.getByRole('combobox')).toHaveCount(0);
     await page.getByRole('button', { name: '閉じる', exact: true }).click();
     await page.getByLabel('タイトル', { exact: true }).fill('新設定で保存');
@@ -292,7 +303,7 @@ test('再利用中のDB接続はバージョン変更を妨げず保存エラー
 
 test('消失した画面キャッシュはオンラインで復旧した後にオフライン準備完了を表示する', async ({ page, context }) => {
   await page.goto('/');
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
   await page.getByLabel('タイトル', { exact: true }).fill('キャッシュ復旧');
   await saved(page);
   const before = await page.evaluate(async () => {
@@ -302,7 +313,7 @@ test('消失した画面キャッシュはオンラインで復旧した後に�
   });
   await page.evaluate(async () => { for (const name of await caches.keys()) await caches.delete(name); });
   await page.reload();
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
   const restored = await page.evaluate(async () => {
     const paths: string[] = [];
     for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) paths.push(request.url);
@@ -312,12 +323,12 @@ test('消失した画面キャッシュはオンラインで復旧した後に�
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByLabel('タイトル', { exact: true })).toHaveValue('キャッシュ復旧');
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
 });
 
 test('オフラインで不足するキャッシュを復旧できないときは準備完了にしない', async ({ page, context }) => {
   await page.goto('/');
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
   await page.evaluate(async () => {
     for (const name of await caches.keys()) {
       const cache = await caches.open(name);
@@ -327,7 +338,7 @@ test('オフラインで不足するキャッシュを復旧できないとき�
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByText(/オフライン用の画面を準備できませんでした/)).toBeVisible();
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toHaveCount(0);
   await page.getByLabel('タイトル', { exact: true }).fill('オフラインで編集は続ける');
   await saved(page);
 });
@@ -391,7 +402,7 @@ test('端末の保存機能が使えなくても警告を表示して書く操�
   await page.getByLabel('タイトル', { exact: true }).fill('保存不可でも編集');
   await page.getByLabel('本文', { exact: true }).fill('保存できなくても本文は残る');
   await page.getByRole('button', { name: '投稿', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('未接続');
+  await expect(page.getByRole('alert')).toContainText('最初に設定で自分の投稿用URLを指定してください。');
   await expect(page.getByLabel('本文', { exact: true })).toHaveValue('保存できなくても本文は残る');
 });
 
@@ -399,9 +410,65 @@ test('Service Workerのインストール失敗をオフライン準備完了と
   await context.route('**/sw.js', (route) => route.fulfill({ contentType: 'application/javascript', body: "self.addEventListener('install', event => event.waitUntil(Promise.reject(new Error('failed'))));" }));
   await page.goto('/');
   await expect(page.getByText(/オフライン用の画面を準備できませんでした/)).toBeVisible();
-  await expect(page.getByText('オフラインでも開けます。', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toHaveCount(0);
   await page.getByLabel('タイトル', { exact: true }).fill('オンラインでは使える');
   await saved(page);
+});
+
+test('index.htmlが転送される配信でも投稿タブを閉じた後に下書きを保つ', async ({ page, context, baseURL }) => {
+  if (!baseURL) throw new Error('テスト用の配信先がありません。');
+  const server = createServer(async (request, response) => {
+    const path = request.url?.split('?')[0] ?? '/';
+    if (path === '/index.html') { response.writeHead(307, { location: '/' }); response.end(); return; }
+    try {
+      const asset = await fetch(new URL(request.url ?? '/', baseURL));
+      response.writeHead(asset.status, { 'content-type': asset.headers.get('content-type') ?? 'application/octet-stream' });
+      response.end(Buffer.from(await asset.arrayBuffer()));
+    } catch { response.writeHead(500); response.end(); }
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('テスト用HTTPサーバーを開けません。');
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    await page.goto(origin);
+    await preparePosting(context, page.url());
+    await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
+    await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
+    await page.getByLabel('タイトル', { exact: true }).fill('ログイン前の下書き');
+    await page.getByLabel('本文', { exact: true }).fill('ログイン後も残す本文');
+    await saved(page);
+    const cached = await page.evaluate(async () => {
+      const response = await caches.match(location.origin + '/');
+      return { status: response?.status, redirected: response?.redirected };
+    });
+    expect(cached).toEqual({ status: 200, redirected: false });
+    await page.getByRole('button', { name: '設定', exact: true }).click();
+    await page.getByLabel('投稿用URL').fill(postingUrl);
+    await page.getByRole('button', { name: '設定を反映' }).click();
+    await saved(page);
+    const before = await stored(page);
+    const [posting] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.getByRole('button', { name: '投稿', exact: true }).click(),
+    ]);
+    await expect(posting.getByRole('heading', { name: '投稿の確認', exact: true })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
+    await posting.close();
+    await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
+    await expect(page).toHaveURL(`${origin}/`);
+    await expect(page.getByLabel('タイトル', { exact: true })).toHaveValue('ログイン前の下書き');
+    expect(await stored(page)).toEqual(before);
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByLabel('本文', { exact: true })).toHaveValue('ログイン後も残す本文');
+    expect(await stored(page)).toEqual(before);
+  } finally {
+    await context.setOffline(false);
+    await page.close();
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test('新版は編集中の画面を更新せずタブを閉じた後に切り替えて旧キャッシュを削除する', async ({ page, context }) => {
@@ -428,7 +495,7 @@ test('新版は編集中の画面を更新せずタブを閉じた後に切り�
   if (!address || typeof address === 'string') throw new Error('テスト用HTTPサーバーを開けません。');
   try {
     await page.goto(`http://127.0.0.1:${address.port}/`);
-    await expect(page.getByText('オフラインでも開けます。', { exact: true })).toBeVisible();
+    await expect(page.getByText('下書きはオフラインでも開けます。', { exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(() => navigator.serviceWorker.controller !== null)).toBe(true);
     await page.getByLabel('タイトル', { exact: true }).fill('更新中も保持');
     await page.getByLabel('本文', { exact: true }).fill('編集中の本文');

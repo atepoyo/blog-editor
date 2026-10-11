@@ -19,7 +19,7 @@ export function HelpDialog({ language, onClose }: { language: Language; onClose:
             </div>
             <div>
               <dt>{text.workerUrl}</dt>
-              <dd><code>https://editor.example.com/posts</code><p>{text.helpWorkerUrl}</p></dd>
+              <dd><code>https://publish.example.com/publish</code><p>{text.helpWorkerUrl}</p></dd>
             </div>
           </dl>
         </section>

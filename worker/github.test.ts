@@ -29,7 +29,7 @@ it('GitHub Appの鍵で短命JWTを署名し個人の一つのリポジトリだ
   expect(payload.exp).toBeGreaterThan(Math.floor(Date.now() / 1000));
   expect(payload.exp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 300);
   expect(request.mock.calls[1]?.[1]?.body).toBe(JSON.stringify({ repositories: ['blog'], permissions: { contents: 'write', metadata: 'read' } }));
-  expect(request.mock.calls.every((call) => call[1]?.redirect === 'error')).toBe(true);
+  expect(request.mock.calls.every((call) => call[1]?.redirect === 'manual')).toBe(true);
 });
 
 it('組織のインストールや別アカウントへの接続ではトークンを要求しない', async () => {
@@ -94,4 +94,52 @@ it('存在確認は接続失敗や認証拒否を存在しない記事として�
   const request = githubRequest().mockResolvedValueOnce(new Response(null, { status: 403 }));
   const store = await GitHubStore.connect(environment, request);
   await expect(store.exists('posts/2026-10-08.md')).rejects.toThrow(StorageError);
+});
+
+it('存在確認と記事作成でもfetchの呼び出し元に保存オブジェクトを渡さない', async () => {
+  const request = githubRequest()
+    .mockResolvedValueOnce(new Response(null, { status: 404 }))
+    .mockResolvedValueOnce(new Response(null, { status: 201 }));
+  const receiverSensitiveRequest: typeof fetch = function (this: unknown, input, init) {
+    expect(this).toBeUndefined();
+    return request(input, init);
+  };
+  const store = await GitHubStore.connect(environment, receiverSensitiveRequest);
+  expect(await store.exists('posts/2026-10-08.md')).toBe(false);
+  await store.createArticle('posts/2026-10-08.md', '本文');
+  expect(request).toHaveBeenCalledTimes(4);
+});
+
+it('インストール取得とトークン発行の転送応答を拒否し転送先へ認証情報を送らない', async () => {
+  for (const status of [301, 302, 307, 308]) {
+    const redirect = () => new Response(null, { status, headers: { location: 'https://other.example/' } });
+    const installationRequest = vi.fn<typeof fetch>().mockResolvedValueOnce(redirect());
+    await expect(GitHubStore.connect(environment, installationRequest)).rejects.toThrow(StorageError);
+    expect(installationRequest).toHaveBeenCalledTimes(1);
+    expect(installationRequest.mock.calls[0]?.[1]?.redirect).toBe('manual');
+
+    const tokenRequest = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ id: 1, account: { login: 'owner', type: 'User' } }))
+      .mockResolvedValueOnce(redirect());
+    await expect(GitHubStore.connect(environment, tokenRequest)).rejects.toThrow(StorageError);
+    expect(tokenRequest).toHaveBeenCalledTimes(2);
+    expect(tokenRequest.mock.calls.every((call) => call[1]?.redirect === 'manual')).toBe(true);
+  }
+});
+
+it('記事の存在確認と作成の転送応答を拒否し保存成功や記事なしとして扱わない', async () => {
+  for (const status of [301, 302, 307, 308]) {
+    const redirect = () => new Response(null, { status, headers: { location: 'https://other.example/' } });
+    const existenceRequest = githubRequest().mockResolvedValueOnce(redirect());
+    const existenceStore = await GitHubStore.connect(environment, existenceRequest);
+    await expect(existenceStore.exists('posts/2026-10-08.md')).rejects.toThrow(StorageError);
+    expect(existenceRequest).toHaveBeenCalledTimes(3);
+    expect(existenceRequest.mock.calls[2]?.[1]?.redirect).toBe('manual');
+
+    const creationRequest = githubRequest().mockResolvedValueOnce(redirect());
+    const creationStore = await GitHubStore.connect(environment, creationRequest);
+    await expect(creationStore.createArticle('posts/2026-10-08.md', '本文')).rejects.toThrow(StorageError);
+    expect(creationRequest).toHaveBeenCalledTimes(3);
+    expect(creationRequest.mock.calls[2]?.[1]?.redirect).toBe('manual');
+  }
 });

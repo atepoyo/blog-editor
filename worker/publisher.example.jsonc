@@ -6,7 +6,7 @@
   "workers_dev": false,
   "preview_urls": false,
   "vars": {
-    "EDITOR_ORIGIN": "https://editor.example.com",
+    "EDITOR_ORIGIN": "https://publish.example.com",
     "ACCESS_ISSUER": "https://your-team.cloudflareaccess.com",
     "ACCESS_AUD": "YOUR_ACCESS_APPLICATION_AUD",
     "ALLOWED_EMAILS": "you@example.com",
@@ -15,5 +15,8 @@
     "GITHUB_REPOSITORY": "YOUR_REPOSITORY",
     "GITHUB_BRANCH": "YOUR_BRANCH"
   },
-  "r2_buckets": [{ "binding": "IMAGES", "bucket_name": "your-images-bucket" }]
+  "r2_buckets": [
+    { "binding": "IMAGES", "bucket_name": "your-images-bucket" },
+    { "binding": "DRAFTS", "bucket_name": "your-private-drafts-bucket" }
+  ]
 }

@@ -39,11 +39,25 @@ it('写真なしの記事も受け取る', () => {
   expect(parseSubmission(form).images).toEqual([]);
 });
 
-it('実在する日付の記事パスだけを許可する', () => {
+it('実在する日付と2以上の連番の記事パスを許可する', () => {
   expect(parseArticlePath('posts/2024-02-29.md')).toBe('posts/2024-02-29.md');
-  for (const path of [undefined, null, 1, 'posts/2025-02-29.md', 'posts/2026-13-01.md', 'posts/2026-04-31.md']) {
+  for (const path of ['posts/2024-02-29-2.md', 'posts/2024-02-29-3.md', 'posts/2024-02-29-10.md']) {
+    expect(parseArticlePath(path)).toBe(path);
+  }
+  for (const path of [undefined, null, 1, 'posts/2025-02-29.md', 'posts/2026-13-01.md', 'posts/2026-04-31.md',
+    'posts/2026-10-08-0.md', 'posts/2026-10-08-1.md', 'posts/2026-10-08-02.md', 'posts/2026-10-08--2.md',
+    'posts/2026-10-08-2.5.md', 'posts/2026-04-31-2.md']) {
     expect(() => parseArticlePath(path)).toThrow(InvalidSubmissionError);
   }
+});
+
+it('連番付きの記事パスでも本文の日付と写真をそのまま受け取る', () => {
+  const form = submissionForm();
+  form.set('manifest', JSON.stringify({ ...manifest, articlePath: 'posts/2026-10-08-2.md' }));
+  const result = parseSubmission(form);
+  expect(result.articlePath).toBe('posts/2026-10-08-2.md');
+  expect(result.markdown).toContain('date: "2026-10-08"');
+  expect(result.images).toEqual([{ path: imagePath, file: form.get('image-0') }]);
 });
 
 it('記事パスでディレクトリ移動やワークフローの書き換えを指定できない', () => {

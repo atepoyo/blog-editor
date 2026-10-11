@@ -2,6 +2,9 @@ import { accessConfig, allowedOrigin, response, verifyAccess } from './access';
 import type { AccessConfig, AccessEnvironment } from './access';
 import { ArticleConflictError, GitHubStore, StorageError } from './github';
 import { InvalidSubmissionError, parseArticlePath, parseSubmission } from './submission';
+import { handleDraftSync } from './draftSync';
+import type { DraftBucket } from './draftSync';
+import { destinationSchema } from './destination';
 
 export interface ImageBucket {
   get(path: string): Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
@@ -10,6 +13,10 @@ export interface ImageBucket {
 
 export interface PublisherEnvironment extends AccessEnvironment {
   IMAGES?: ImageBucket;
+  DRAFTS?: DraftBucket;
+  GITHUB_OWNER?: string;
+  GITHUB_REPOSITORY?: string;
+  GITHUB_BRANCH?: string;
 }
 
 export interface ArticleStore {
@@ -52,7 +59,13 @@ export async function handlePublisher(request: Request, environment: PublisherEn
     if (!await dependencies.verify(request, config) || !allowedOrigin(request, config)) return response(403, { error: 'unauthorized' });
     const url = new URL(request.url);
     if (url.pathname !== '/posts') return response(404, { error: 'not_found' });
+    if (url.searchParams.has('draft')) return handleDraftSync(request, environment.DRAFTS);
     if (request.method === 'GET') {
+      if (url.search === '?destination=1') {
+        const destination = destinationSchema.parse({ owner: environment.GITHUB_OWNER,
+          repository: environment.GITHUB_REPOSITORY, branch: environment.GITHUB_BRANCH });
+        return response(200, destination);
+      }
       const path = parseArticlePath(url.searchParams.get('path'));
       if ([...url.searchParams.keys()].some((key) => key !== 'path') || url.searchParams.getAll('path').length !== 1) {
         throw new InvalidSubmissionError();
@@ -75,7 +88,9 @@ export async function handlePublisher(request: Request, environment: PublisherEn
     await store.createArticle(submission.articlePath, submission.markdown);
     return response(201, { articlePath: submission.articlePath });
   } catch (error) {
-    if (error instanceof InvalidSubmissionError) return response(400, { error: 'invalid_submission' });
+    if (error instanceof InvalidSubmissionError) {
+      return response(400, { error: 'invalid_submission' });
+    }
     if (error instanceof ArticleConflictError) return response(409, { error: 'conflict' });
     // 上流のエラー本文や例外には資格情報が混ざる可能性があるため、利用者へ返さない。
     return response(503, { error: 'save_failed' });

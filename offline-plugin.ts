@@ -7,16 +7,18 @@ export function offlineCache(): Plugin {
     apply: 'build',
     enforce: 'post',
     generateBundle(_options, bundle) {
-      const entries = Object.values(bundle).filter((entry) => !entry.fileName.endsWith('.map')).sort((a, b) => a.fileName.localeCompare(b.fileName));
-      const hash = createHash('sha256');
+      const entries = Object.values(bundle).filter((entry) => !entry.fileName.endsWith('.map') && entry.fileName !== 'publish.html').sort((a, b) => a.fileName.localeCompare(b.fileName));
+      const files = entries.map((entry) => entry.fileName === 'index.html' ? './' : entry.fileName);
+      const hash = createHash('sha256').update(JSON.stringify(files));
       for (const entry of entries) hash.update(entry.fileName).update(entry.type === 'chunk' ? entry.code : entry.source);
       const cacheName = `blog-md-shell-${hash.digest('hex').slice(0, 16)}`;
       this.emitFile({
         type: 'asset', fileName: 'sw.js',
         source: `const CACHE = ${JSON.stringify(cacheName)};
 const ROOT = new URL(self.registration.scope);
-const INDEX = new URL('index.html', ROOT).href;
-const FILES = ${JSON.stringify(entries.map((entry) => entry.fileName))}.map((file) => new URL(file, ROOT).href);
+// Cloudflareはindex.htmlをルートへ転送する。転送済み応答は画面遷移で拒否されるため、正規URLから保存する。
+const INDEX = ROOT.href;
+const FILES = ${JSON.stringify(files)}.map((file) => new URL(file, ROOT).href);
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(FILES)));
@@ -51,7 +53,7 @@ self.addEventListener('fetch', (event) => {
     })());
     return;
   }
-  const isPage = request.mode === 'navigate' && (url.pathname === ROOT.pathname || url.href.split('?')[0] === INDEX);
+  const isPage = request.mode === 'navigate' && (url.pathname === ROOT.pathname || url.pathname === new URL('index.html', ROOT).pathname);
   const asset = FILES.find((file) => new URL(file).pathname === url.pathname);
   // ビルドした画面ファイルだけを扱い、投稿APIやユーザー画像はキャッシュしない。
   if (!isPage && !asset) return;

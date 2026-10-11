@@ -9,4 +9,6 @@ playwright-report/
 .env*
 worker/gateway.jsonc
 worker/publisher.jsonc
+worker/editor.jsonc
+worker/posting-ui.jsonc
 .wrangler/

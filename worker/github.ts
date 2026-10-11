@@ -34,15 +34,18 @@ function encodeBase64(bytes: Uint8Array): string {
 
 export class GitHubStore {
   private readonly base: string;
+  private readonly request: typeof fetch;
 
   private constructor(
     private readonly token: string,
     owner: string,
     repository: string,
     private readonly branch: string,
-    private readonly request: typeof fetch,
+    request: typeof fetch,
   ) {
     this.base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repository)}`;
+    // WorkersのfetchはGitHubStoreをthisにすると例外になるため、呼び出し時のreceiverを分離する。
+    this.request = (input, init) => request(input, init);
   }
 
   static async connect(environment: unknown, request: typeof fetch = fetch): Promise<GitHubStore> {
@@ -54,12 +57,13 @@ export class GitHubStore {
       .setIssuedAt(now - 60).setExpirationTime(now + 300).sign(key);
     const appHeaders = GitHubStore.headers(jwt);
     const base = `https://api.github.com/repos/${encodeURIComponent(config.GITHUB_OWNER)}/${encodeURIComponent(config.GITHUB_REPOSITORY)}`;
-    const installationResponse = await request(`${base}/installation`, { headers: appHeaders, redirect: 'error' });
+    // Workersはredirect: errorを受け付けない。manualで転送を止め、期待したステータス以外は拒否する。
+    const installationResponse = await request(`${base}/installation`, { headers: appHeaders, redirect: 'manual' });
     if (!installationResponse.ok) throw new StorageError();
     const installation = installationSchema.parse(await installationResponse.json());
     if (installation.account.login.toLowerCase() !== config.GITHUB_OWNER.toLowerCase()) throw new StorageError();
     const tokenResponse = await request(`https://api.github.com/app/installations/${installation.id}/access_tokens`, {
-      method: 'POST', headers: appHeaders, redirect: 'error',
+      method: 'POST', headers: appHeaders, redirect: 'manual',
       body: JSON.stringify({ repositories: [config.GITHUB_REPOSITORY], permissions: { contents: 'write', metadata: 'read' } }),
     });
     if (tokenResponse.status !== 201) throw new StorageError();
@@ -84,7 +88,7 @@ export class GitHubStore {
   }
 
   async exists(path: string): Promise<boolean> {
-    const result = await this.request(this.contentUrl(path), { headers: GitHubStore.headers(this.token), redirect: 'error' });
+    const result = await this.request(this.contentUrl(path), { headers: GitHubStore.headers(this.token), redirect: 'manual' });
     if (result.status === 404) return false;
     if (result.status !== 200) throw new StorageError();
     return true;
@@ -100,7 +104,7 @@ export class GitHubStore {
 
   private create(path: string, content: string, message: string): Promise<Response> {
     return this.request(`${this.base}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
-      method: 'PUT', headers: GitHubStore.headers(this.token), redirect: 'error',
+      method: 'PUT', headers: GitHubStore.headers(this.token), redirect: 'manual',
       // SHAを受け取る更新用の経路を用意せず、記事の新規作成だけに限定する。
       body: JSON.stringify({ message, content, branch: this.branch }),
     });

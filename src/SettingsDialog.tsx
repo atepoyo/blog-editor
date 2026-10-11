@@ -9,13 +9,6 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
   const [draft, setDraft] = useState(settings);
   const [error, setError] = useState<MessageKey | null>(null);
   const text = messages[language];
-  let loginUrl: string | undefined;
-  try {
-    const endpoint = new URL(parseEndpoint(draft.workerUrl));
-    if (endpoint.origin === location.origin && endpoint.pathname === '/posts') {
-      loginUrl = new URL('/auth/login', endpoint).href;
-    }
-  } catch { /* 入力途中のURLではログイン先を表示しない。 */ }
   return (
     <Modal title={text.settings} closeLabel={text.close} onClose={onClose}>
       <form className="settings-form" onSubmit={(event) => {
@@ -35,11 +28,18 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
           </div>
         </div>
         <div className="field-group">
-          <label className="field">{text.workerUrl}<input aria-describedby="worker-url-help" type="url" inputMode="url" placeholder="https://editor.example.com/posts" value={draft.workerUrl} onChange={(event) => setDraft({ ...draft, workerUrl: event.currentTarget.value })} /></label>
+          <label className="field">{text.workerUrl}<input aria-describedby="worker-url-help" type="url" inputMode="url" placeholder="https://publish.example.com/publish" value={draft.workerUrl} onChange={(event) => setDraft({ ...draft, workerUrl: event.currentTarget.value })} /></label>
           <p id="worker-url-help" className="hint">{text.workerHint}</p>
-          {loginUrl && <a href={loginUrl} target="_blank" rel="noopener noreferrer">{text.signIn}</a>}
+          {draft.workerUrl.trim() && <button type="button" className="auth-button full" onClick={() => {
+            try {
+              const url = parseEndpoint(draft.workerUrl);
+              window.open(new URL('/posts?login=1', url).href, '_blank', 'noopener,noreferrer');
+              setError(null);
+            } catch (reason) {
+              setError(reason instanceof EditorError ? reason.key : 'invalidUrl');
+            }
+          }}>{text.signIn}<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 4h6v6M20 4 10 14M10 4H4v16h16v-6" /></svg></button>}
         </div>
-        <p className="hint">{text.sessionHint}</p>
         {error && <p role="alert" className="error">{text[error]}</p>}
         <button type="submit" className="primary full">{text.apply}</button>
       </form>

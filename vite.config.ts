@@ -4,5 +4,6 @@ import { offlineCache } from './offline-plugin.ts';
 
 export default defineConfig({
   plugins: [react(), offlineCache()],
+  build: { rolldownOptions: { input: { editor: 'index.html', publish: 'publish.html' } } },
   test: { include: ['src/**/*.test.ts', 'worker/**/*.test.ts'] },
 });
