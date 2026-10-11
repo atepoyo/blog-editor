@@ -2,7 +2,7 @@
 
 A small, mobile-first Markdown blog editor built with React, TypeScript and Vite. The interface supports English and Japanese.
 
-This repository contains the shared public Editor and the per-user Cloudflare Gateway, protected posting page, and Publisher. Each user runs the posting Workers in their own Cloudflare account and installs their own GitHub App on one personal repository. The Editor and protected posting page use separate HTTPS origins. Cloudflare Access protects the posting page and API; the Editor stores no GitHub credentials. See the [setup guide](docs/cloudflare-setup.md) and [Worker API contract](docs/worker-contract.md). Deployment is a separate step.
+This repository contains the shared public Editor and the per-user Cloudflare Gateway, protected posting page, and Publisher. Each user runs the posting Workers in their own Cloudflare account and installs their own GitHub App on one personal repository. The Editor and protected posting page use separate HTTPS origins. Cloudflare Access protects the posting page and API; the Editor stores no GitHub credentials. See the [setup guide](docs/cloudflare-setup.md) and [Worker API contract](docs/worker-contract.md).
 
 Users manage their own GitHub App private key in their private publisher Worker's Secret, including revocation and replacement. Posting and storage use each user's resources; there is no shared posting backend or central key custody. The publisher can read its own key, so the safety of the deployed code and accounts still matters.
 
@@ -18,6 +18,27 @@ pnpm dev
 Run `pnpm build` to create a production build in `dist/`. Host the editor over HTTPS for posting and offline support.
 
 The shared Editor is served publicly. A user's `worker/posting-ui.example.jsonc` serves the protected confirmation page, while the Gateway serves it through a Service Binding after Access authentication. The Gateway has no Static Assets binding. See the setup guide for the per-user origins and Worker bindings.
+
+## Deployment
+
+The shared Editor is built and deployed to Cloudflare when build inputs are pushed to the repository's default branch. Before the first deployment, add `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as GitHub Actions secrets; see the [setup guide](docs/cloudflare-setup.md). This workflow deploys only the shared Editor. Each user's Gateway, posting page, and Publisher remain separately deployed to their own Cloudflare account.
+
+## First-time setup
+
+You can open the shared Editor and write drafts without an account or credentials. Drafts are stored in your browser. To publish to your own GitHub repository, set up your own posting service in your Cloudflare account:
+
+1. Create a GitHub App under your personal account. Grant **Contents: Read and write** and **Metadata: Read-only**, then install it on only the personal repository where you want to publish posts.
+2. Create the per-user Cloudflare resources: a Publisher, Gateway, protected posting page, and a Cloudflare Access application. Configure their origins and Service Bindings. Follow the [Cloudflare setup guide](docs/cloudflare-setup.md) for the required settings and deployment order.
+3. Add your GitHub App ID and the fixed repository destination to your Publisher configuration. Deploy your Publisher, then register that App's private key as a Secret on **your own Publisher Worker**:
+
+   ```sh
+   pnpm exec wrangler secret put GITHUB_APP_PRIVATE_KEY --config worker/publisher.jsonc
+   ```
+
+   This private key belongs to your posting service. Do not put it in the shared Editor or this repository's GitHub Actions secrets.
+4. In the Editor's **Settings**, enter your protected posting page URL. If you publish photos, create and bind a public `IMAGES` R2 bucket and enter its public base URL. A separate private `DRAFTS` R2 bucket is needed only for manual draft sync between devices.
+
+The `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` GitHub Actions secrets in [Deployment](#deployment) are for the maintainer who deploys the shared Editor. They do not configure a user's posting service. Each user manages and deploys their own Gateway, posting page, Publisher, Access settings, R2 storage, and GitHub App key.
 
 ## Usage
 

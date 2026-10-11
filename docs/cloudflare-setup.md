@@ -75,7 +75,16 @@ GatewayはAccess認証後に `/publish` と `/assets/*` を `POSTING_UI` Service
 
 ## 公開時に行う操作
 
-次のコマンドは本番リソースを変更します。ローカル検証では実行しません。Publisherを先に作成し、秘密鍵はそのWorkerだけへ登録します。
+投稿Workerの次のコマンドは本番リソースを変更します。ローカル検証では実行しません。Publisherを先に作成し、秘密鍵はそのWorkerだけへ登録します。
+
+### 共通Editorの自動デプロイ
+
+`.github/workflows/deploy-editor.yml` は既定ブランチにEditorのビルド入力がPushされたとき、`worker/editor.production.jsonc` を使って公開Editorだけをビルド・デプロイします。初回の前に、GitHubリポジトリの **Settings → Secrets and variables → Actions** に次のSecretを登録します。
+
+- `CLOUDFLARE_ACCOUNT_ID`: 共通Editorを配信するCloudflareアカウントのID
+- `CLOUDFLARE_API_TOKEN`: そのアカウントでWorkerをデプロイする権限に絞ったAPI Token
+
+このTokenはGitHub App秘密鍵やPublisherのSecretとは別物です。投稿Worker・Access・R2はこのworkflowから変更しません。公開ドメイン `editor.atepoyo.com` は `worker/editor.production.jsonc` で共通Editor Workerに割り当てます。
 
 Wranglerの認証状態は `pnpm exec wrangler whoami` で確認します。未ログインの場合は `pnpm exec wrangler login` の認証を自分で完了します。認証情報をチャットや設定ファイルへ貼り付ける必要はありません。
 
