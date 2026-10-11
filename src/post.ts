@@ -12,6 +12,7 @@ export function articleFormData(article: Article): FormData {
   form.append('manifest', JSON.stringify({
     version: 1,
     articlePath: article.path,
+    ...(article.editSha ? { editSha: article.editSha } : {}),
     images: article.images.map((photo, index) => ({ field: `image-${index}`, filename: photo.file.name, path: photo.path })),
   }));
   // WebKitでは保存済みFileを直接送るとフォーム全体が空になる場合があるため、同じ内容のBlobを渡す。
@@ -29,6 +30,13 @@ function requireResponse(response: Response): void {
 export async function postArticle(article: Article, endpoint: string, request: typeof fetch = fetch): Promise<string> {
   if (!endpoint.trim()) throw new EditorError('workerRequired');
   const url = parseEndpoint(endpoint);
+  if (article.editSha) {
+    const saved = await request(url, { method: 'POST', body: articleFormData(article), credentials: 'same-origin', redirect: 'error', cache: 'no-store' });
+    requireResponse(saved);
+    const result = savedResponse.safeParse(await saved.json().catch(() => null));
+    if (saved.status !== 200 || !result.success || result.data.articlePath !== article.path) throw new EditorError('unconfirmedSave');
+    return article.path;
+  }
   const datedPath = article.path.slice(0, 16);
   for (let number = 1; ; number++) {
     const path = `${datedPath}${number === 1 ? '' : `-${number}`}.md`;

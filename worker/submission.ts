@@ -15,6 +15,7 @@ const imageSchema = z.strictObject({
 const manifestSchema = z.strictObject({
   version: z.literal(1),
   articlePath: articlePathSchema,
+  editSha: z.string().regex(/^[\da-f]{40}$/i).optional(),
   images: z.array(imageSchema),
 }).superRefine((manifest, context) => {
   const paths = new Set<string>();
@@ -35,6 +36,7 @@ export interface Submission {
   articlePath: string;
   markdown: string;
   images: SubmittedPhoto[];
+  editSha?: string;
 }
 
 export class InvalidSubmissionError extends Error {
@@ -82,5 +84,5 @@ export function parseSubmission(form: FormData): Submission {
     return { path: image.path, file };
   });
 
-  return { articlePath: manifest.articlePath, markdown, images };
+  return { articlePath: manifest.articlePath, markdown, images, ...(manifest.editSha ? { editSha: manifest.editSha } : {}) };
 }

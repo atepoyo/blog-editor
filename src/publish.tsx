@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { z } from 'zod';
 import type { Article } from './article';
-import { decodeArticle, decodeDraftMessage, expectedWindow, handoffSignal } from './handoffProtocol';
+import { decodeArticle, decodeDraftMessage, encodeEditArticle, expectedWindow, handoffSignal, isEditRequest } from './handoffProtocol';
 import { destinationSchema } from '../worker/destination';
 import type { Destination } from '../worker/destination';
 import { SyncConfirmation } from './SyncConfirmation';
@@ -10,9 +10,12 @@ import type { SyncSession } from './SyncConfirmation';
 import { MarkdownPreview } from './MarkdownPreview';
 import { EditorError, messages } from './messages';
 import { postArticle } from './post';
+import { parsePublishedArticle } from './article';
 import './style.css';
 
 const originSchema = z.url().refine((value) => new URL(value).origin === value);
+const articleListSchema = z.object({ articles: z.array(z.object({ path: z.string(), title: z.string() })) });
+const publishedArticleSchema = z.object({ path: z.string(), markdown: z.string(), sha: z.string() });
 
 function Publish() {
   const [article, setArticle] = useState<Article | null>(null);
@@ -22,6 +25,10 @@ function Publish() {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [editorOrigin, setEditorOrigin] = useState('');
+  const [editMode, setEditMode] = useState(false);
+  const [editSessionId, setEditSessionId] = useState<string | null>(null);
+  const [editArticles, setEditArticles] = useState<{ path: string; title: string }[] | null>(null);
+  const [selectingPath, setSelectingPath] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     const opener: Window | null = window.opener;
@@ -41,6 +48,20 @@ function Publish() {
         id = result.data.id;
         opener?.postMessage({ type: 'blog-md:ready', id }, origin.data);
       } else if (id) {
+        if (isEditRequest(event.data, id)) {
+          received = true;
+          setEditMode(true);
+          setEditSessionId(id);
+          void fetch('/posts?articles=1', { credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
+            .then(async (response) => {
+              if (!response.ok) throw new Error('過去の記事を取得できません。投稿先の設定を確認してください。');
+              const parsed = articleListSchema.safeParse(await response.json());
+              if (!parsed.success) throw new Error('過去の記事の一覧を読み取れません。');
+              setEditArticles(parsed.data.articles);
+            }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '過去の記事を取得できません。'));
+          window.removeEventListener('message', receive);
+          return;
+        }
         const incoming = decodeArticle(event.data, id);
         const incomingDraft = decodeDraftMessage(event.data, id);
         if (!incoming && !incomingDraft) return;
@@ -72,12 +93,43 @@ function Publish() {
   }, []);
 
   return <main className="publish-page">
-    <header className="app-header"><h1>{syncSession ? '下書きの同期' : '投稿の確認'}</h1></header>
-    {!syncSession && <p>投稿先と本文・写真を確認してから、投稿を確定してください。</p>}
-    {destination && !syncSession && <dl>
+    <header className="app-header"><h1>{editMode ? '過去の記事を編集' : syncSession ? '下書きの同期' : '投稿の確認'}</h1></header>
+    {!syncSession && !editMode && <p>投稿先と本文・写真を確認してから、投稿を確定してください。</p>}
+    {destination && !syncSession && !editMode && <dl>
       <dt>投稿先</dt><dd>GitHub {destination.owner}/{destination.repository}</dd>
     </dl>}
-    {!article && !syncSession && !error && <p role="status">共通Editorから記事と写真を受け取るのを待っています。</p>}
+    {!article && !syncSession && !editMode && !error && <p role="status">共通Editorから記事と写真を受け取るのを待っています。</p>}
+    {editMode && <section aria-label="編集する記事">
+      <p>編集する記事を選んでください。</p>
+      {editArticles === null ? <p role="status">過去の記事を読み込んでいます…</p> : editArticles.length === 0
+        ? <p role="status">記事がありません。</p>
+        : <ul className="published-articles">
+          {editArticles.map((item) => <li key={item.path}>
+            <button className="quiet full" type="button" disabled={selectingPath !== null} onClick={async () => {
+              if (!editSessionId || selectingPath) return;
+              setSelectingPath(item.path); setError(null);
+              try {
+                const response = await fetch(`/posts?article=${encodeURIComponent(item.path)}`, { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+                if (!response.ok) throw new Error('記事を取得できません。もう一度選んでください。');
+                const result = publishedArticleSchema.safeParse(await response.json());
+                if (!result.success || result.data.path !== item.path) throw new Error('記事を読み取れません。');
+                parsePublishedArticle(result.data.markdown, result.data.path, result.data.sha);
+                const opener = window.opener;
+                if (!opener || !editorOrigin) throw new Error('元の編集画面に戻れません。');
+                opener.postMessage(encodeEditArticle(result.data, editSessionId), editorOrigin);
+                window.opener = null;
+                setSaved(true);
+                setTimeout(() => window.close(), 50);
+              } catch (reason) { setError(reason instanceof Error ? reason.message : '記事を取得できません。'); }
+              finally { setSelectingPath(null); }
+            }}>
+              {item.title}<span className="article-path">{item.path}</span>
+              {selectingPath === item.path && <span role="status">読み込み中…</span>}
+            </button>
+          </li>)}
+        </ul>}
+      {saved && <p role="status">記事を編集画面に読み込みました。</p>}
+    </section>}
     {syncSession && <SyncConfirmation session={syncSession} />}
     {article && <>
       <MarkdownPreview article={article} />

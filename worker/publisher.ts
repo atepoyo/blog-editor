@@ -22,6 +22,9 @@ export interface PublisherEnvironment extends AccessEnvironment {
 export interface ArticleStore {
   exists(path: string): Promise<boolean>;
   createArticle(path: string, markdown: string): Promise<void>;
+  listArticles?(): Promise<{ path: string; title: string }[]>;
+  readArticle?(path: string): Promise<{ markdown: string; sha: string } | null>;
+  updateArticle?(path: string, markdown: string, sha: string): Promise<void>;
 }
 
 interface PublisherDependencies {
@@ -66,6 +69,21 @@ export async function handlePublisher(request: Request, environment: PublisherEn
           repository: environment.GITHUB_REPOSITORY, branch: environment.GITHUB_BRANCH });
         return response(200, destination);
       }
+      if (url.search === '?articles=1') {
+        const store = await dependencies.connect(environment);
+        if (!store.listArticles) throw new StorageError();
+        return response(200, { articles: await store.listArticles() });
+      }
+      if (url.searchParams.has('article')) {
+        const path = parseArticlePath(url.searchParams.get('article'));
+        if ([...url.searchParams.keys()].some((key) => key !== 'article') || url.searchParams.getAll('article').length !== 1) {
+          throw new InvalidSubmissionError();
+        }
+        const store = await dependencies.connect(environment);
+        if (!store.readArticle) throw new StorageError();
+        const article = await store.readArticle(path);
+        return article ? response(200, { path, ...article }) : response(404, { error: 'not_found' });
+      }
       const path = parseArticlePath(url.searchParams.get('path'));
       if ([...url.searchParams.keys()].some((key) => key !== 'path') || url.searchParams.getAll('path').length !== 1) {
         throw new InvalidSubmissionError();
@@ -81,9 +99,17 @@ export async function handlePublisher(request: Request, environment: PublisherEn
     const bucket = environment.IMAGES;
     if (submission.images.length && !bucket) throw new StorageError();
     const store = await dependencies.connect(environment);
-    if (await store.exists(submission.articlePath)) throw new ArticleConflictError();
+    const updateArticle = store.updateArticle;
+    if (submission.editSha) {
+      if (!updateArticle) throw new StorageError();
+    } else if (await store.exists(submission.articlePath)) throw new ArticleConflictError();
     for (const photo of submission.images) {
       if (bucket) await storeR2Image(bucket, photo.path, photo.file);
+    }
+    if (submission.editSha) {
+      if (!updateArticle) throw new StorageError();
+      await updateArticle.call(store, submission.articlePath, submission.markdown, submission.editSha);
+      return response(200, { articlePath: submission.articlePath });
     }
     await store.createArticle(submission.articlePath, submission.markdown);
     return response(201, { articlePath: submission.articlePath });

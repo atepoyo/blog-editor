@@ -93,8 +93,9 @@ input:focus, textarea:focus, select:focus {
 
 .editor-footer { display: grid; gap: 12px; margin-top: 12px; }
 .hint, .connection { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
-.publish-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.publish-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2); }
 .publish-row > .primary { flex-shrink: 0; min-width: 112px; min-height: 48px; }
+.edit-post { flex-basis: 100%; min-height: 44px; border-color: var(--border); }
 .editor-footer > button.quiet { justify-self: end; font-size: 12px; }
 .local-status { display: grid; gap: 4px; min-width: 0; }
 .local-status .hint { font-size: 12px; text-wrap: pretty; }
@@ -165,6 +166,9 @@ dialog form { display: grid; gap: var(--space-2); }
 .publish-page { display: grid; gap: var(--space-2); }
 .publish-page h1 { font-size: 24px; margin: 0; }
 .publish-page dd { margin: 0 0 12px; overflow-wrap: anywhere; }
+.published-articles { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
+.published-articles button { display: grid; gap: 4px; justify-items: start; text-align: start; }
+.article-path { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .article-preview { min-width: 0; overflow-wrap: anywhere; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .article-preview > :first-child { margin-top: 0; }
 .article-preview > :last-child { margin-bottom: 0; }

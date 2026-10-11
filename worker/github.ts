@@ -19,6 +19,8 @@ const tokenSchema = z.object({
   repositories: z.array(z.object({ name: z.string(), owner: ownerSchema })).length(1),
   permissions: z.strictObject({ contents: z.literal('write'), metadata: z.literal('read') }),
 });
+const contentFileSchema = z.object({ content: z.string(), encoding: z.literal('base64'), sha: z.string().regex(/^[\da-f]{40}$/i) });
+const directorySchema = z.array(z.object({ type: z.string(), path: z.string() }));
 
 export class StorageError extends Error {
   constructor() { super('保存先への操作に失敗しました。'); }
@@ -94,11 +96,57 @@ export class GitHubStore {
     return true;
   }
 
+  async listArticles(): Promise<{ path: string; title: string }[]> {
+    const result = await this.request(this.contentUrl('posts'), { headers: GitHubStore.headers(this.token), redirect: 'manual' });
+    if (result.status === 404) return [];
+    if (result.status !== 200) throw new StorageError();
+    const entries = directorySchema.safeParse(await result.json().catch(() => null));
+    if (!entries.success) throw new StorageError();
+    const paths = entries.data.filter((entry) => entry.type === 'file' && /^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/.test(entry.path))
+      .map((entry) => entry.path).sort((left, right) => right.localeCompare(left));
+    return Promise.all(paths.map(async (path) => {
+      const article = await this.readArticle(path);
+      if (!article) throw new StorageError();
+      return { path, title: this.titleFromMarkdown(article.markdown) ?? path.slice(6, -3) };
+    }));
+  }
+
+  async readArticle(path: string): Promise<{ markdown: string; sha: string } | null> {
+    const result = await this.request(this.contentUrl(path), { headers: GitHubStore.headers(this.token), redirect: 'manual' });
+    if (result.status === 404) return null;
+    if (result.status !== 200) throw new StorageError();
+    const file = contentFileSchema.safeParse(await result.json().catch(() => null));
+    if (!file.success) throw new StorageError();
+    try {
+      const content = Buffer.from(file.data.content.replace(/\s/g, ''), 'base64');
+      return { markdown: new TextDecoder('utf-8', { fatal: true }).decode(content), sha: file.data.sha };
+    } catch { throw new StorageError(); }
+  }
+
+  private titleFromMarkdown(markdown: string): string | null {
+    const encoded = /^---\r?\ntitle: ("(?:\\.|[^"\\])*")\r?\n/m.exec(markdown)?.[1];
+    if (!encoded) return null;
+    try {
+      const title = z.string().safeParse(JSON.parse(encoded));
+      return title.success && title.data.trim() ? title.data : null;
+    } catch { return null; }
+  }
+
   async createArticle(path: string, markdown: string): Promise<void> {
     const result = await this.create(path, encodeBase64(new TextEncoder().encode(markdown)), '記事を公開するため新規投稿を保存');
     if (result.status === 201) return;
     // GitHubは既存ファイルへのSHAなしのPUTを422で拒否する場合もある。
     if ((result.status === 409 || result.status === 422) && await this.exists(path)) throw new ArticleConflictError();
+    throw new StorageError();
+  }
+
+  async updateArticle(path: string, markdown: string, sha: string): Promise<void> {
+    const result = await this.request(`${this.base}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
+      method: 'PUT', headers: GitHubStore.headers(this.token), redirect: 'manual',
+      body: JSON.stringify({ message: '記事を編集して内容を更新', content: encodeBase64(new TextEncoder().encode(markdown)), branch: this.branch, sha }),
+    });
+    if (result.status === 200) return;
+    if (result.status === 409 || result.status === 422) throw new ArticleConflictError();
     throw new StorageError();
   }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseSubmission } from '../worker/submission';
+import { parsePublishedArticle } from './article';
 import type { Article } from './article';
 import { articleFormData } from './post';
 import { cloudDraftSchema } from './syncProtocol';
@@ -12,14 +13,39 @@ export const handoffSignal = z.strictObject({
 const articleMessage = z.strictObject({
   type: z.literal('blog-md:article'), id: z.uuid(),
   article: z.strictObject({
-    markdown: z.string(), path: z.string(),
+    markdown: z.string(), path: z.string(), editSha: z.string().regex(/^[\da-f]{40}$/i).optional(),
     images: z.array(z.strictObject({ filename: z.string(), path: z.string(), blob: z.instanceof(Blob) })),
   }),
 });
+const editRequestMessage = z.strictObject({ type: z.literal('blog-md:edit-request'), id: z.uuid() });
+const editArticleMessage = z.strictObject({
+  type: z.literal('blog-md:edit-article'), id: z.uuid(),
+  article: z.strictObject({ markdown: z.string(), path: z.string(), sha: z.string() }),
+});
+
+export function encodeEditRequest(id: string) {
+  return { type: 'blog-md:edit-request', id };
+}
+
+export function isEditRequest(data: unknown, id: string): boolean {
+  const result = editRequestMessage.safeParse(data);
+  return result.success && result.data.id === id;
+}
+
+export function encodeEditArticle(article: { markdown: string; path: string; sha: string }, id: string) {
+  return { type: 'blog-md:edit-article', id, article };
+}
+
+export function decodeEditArticle(data: unknown, id: string) {
+  const result = editArticleMessage.safeParse(data);
+  if (!result.success || result.data.id !== id) return null;
+  try { return parsePublishedArticle(result.data.article.markdown, result.data.article.path, result.data.article.sha); }
+  catch { return null; }
+}
 
 export function encodeArticle(article: Article, id: string) {
   return { type: 'blog-md:article', id, article: {
-    markdown: article.markdown, path: article.path,
+    markdown: article.markdown, path: article.path, ...(article.editSha ? { editSha: article.editSha } : {}),
     images: article.images.map((photo) => ({ filename: photo.file.name, path: photo.path,
       blob: photo.file.slice(0, photo.file.size, photo.file.type) })),
   } };
@@ -30,11 +56,13 @@ export function decodeArticle(data: unknown, id: string): Article | null {
   if (!result.success || result.data.id !== id) return null;
   try {
     const incoming: Article = { ...result.data.article,
+      ...(result.data.article.editSha ? { editSha: result.data.article.editSha } : {}),
       images: result.data.article.images.map((photo) => ({ path: photo.path,
         file: new File([photo.blob], photo.filename, { type: photo.blob.type }) })),
     };
     const submission = parseSubmission(articleFormData(incoming));
-    return { markdown: submission.markdown, path: submission.articlePath, images: submission.images };
+    return { markdown: submission.markdown, path: submission.articlePath, images: submission.images,
+      ...(submission.editSha ? { editSha: submission.editSha } : {}) };
   } catch { return null; }
 }
 

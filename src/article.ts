@@ -17,6 +17,7 @@ export interface Article {
   markdown: string;
   path: string;
   images: Photo[];
+  editSha?: string;
 }
 
 const httpUrl = z.url().refine((value) => {
@@ -65,6 +66,8 @@ export function generateArticle(
   photos: Photo[],
   settings: Settings,
   now: Date,
+  editSha?: string,
+  editPath?: string,
 ): Article {
   if (!title.trim()) throw new EditorError('titleRequired');
   const tree = fromMarkdown(body);
@@ -95,10 +98,25 @@ export function generateArticle(
   for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
     markdownBody = markdownBody.slice(0, replacement.start) + replacement.value + markdownBody.slice(replacement.end);
   }
-  const date = localDate(now);
+  const date = editPath ? editPath.slice(6, 16) : localDate(now);
   return {
     markdown: `---\ntitle: ${JSON.stringify(title.trim())}\ndate: ${JSON.stringify(date)}\n---\n\n${markdownBody}\n`,
-    path: `posts/${date}.md`,
+    path: editPath ?? `posts/${date}.md`,
     images: photos.filter((photo) => used.has(photo)),
+    ...(editSha ? { editSha } : {}),
   };
+}
+
+export function parsePublishedArticle(markdown: string, path: string, sha: string) {
+  const frontmatter = /^---\r?\ntitle: ("(?:\\.|[^"\\])*")\r?\ndate: ("(?:\\.|[^"\\])*")\r?\n---\r?\n\r?\n([\s\S]*)$/.exec(markdown);
+  if (!frontmatter?.[1] || frontmatter[3] === undefined) throw new EditorError('invalidArticle');
+  let title: unknown;
+  try { title = JSON.parse(frontmatter[1]); } catch { throw new EditorError('invalidArticle'); }
+  const day = path.slice(6, 16);
+  const date = new Date(`${day}T00:00:00.000Z`);
+  if (typeof title !== 'string' || !title.trim() || !/^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/.test(path)
+    || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day || !/^[\da-f]{40}$/i.test(sha)) {
+    throw new EditorError('invalidArticle');
+  }
+  return { title, body: frontmatter[3].replace(/\r?\n$/, ''), path, sha };
 }

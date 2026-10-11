@@ -6,7 +6,7 @@ import { Modal } from './Modal';
 import { SettingsDialog } from './SettingsDialog';
 import { HelpDialog } from './HelpDialog';
 import { resizePhoto } from './photo';
-import { handoffArticle } from './handoff';
+import { handoffArticle, selectArticleForEditing } from './handoff';
 import { createCloudStore, SyncError } from './cloudDraft';
 import { encodeDraft } from './syncProtocol';
 import { EditorError, messages } from './messages';
@@ -23,6 +23,7 @@ export function App() {
   const [language, setLanguage] = useState<Language>('ja');
   const [helpOpen, setHelpOpen] = useState(false);
   const [clearDraftOpen, setClearDraftOpen] = useState(false);
+  const [replaceArticleOpen, setReplaceArticleOpen] = useState(false);
   const text = messages[language];
   const { draft, setDraft, clearDraft, loading, status, syncStatus, acceptManualSync, resolveConflict, exportConflict } = useDraft();
   const { title, body, photos, settings } = draft;
@@ -35,6 +36,8 @@ export function App() {
   const [offline, setOffline] = useState<'offlinePreparing' | 'offlineReady' | 'offlineFailed' | null>(import.meta.env.PROD ? 'offlinePreparing' : null);
   const draftMessage = status === 'saved' ? null : draftMessages[status];
   const [notice, setNotice] = useState<{ path: string } | null>(null);
+  const [editTarget, setEditTarget] = useState<{ path: string; sha: string } | null>(null);
+  const [pendingArticle, setPendingArticle] = useState<{ path: string; sha: string; title: string; body: string } | null>(null);
   const [error, setError] = useState<MessageKey | null>(null);
   const textArea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -94,7 +97,16 @@ export function App() {
   }
 
   function currentArticle() {
-    return generateArticle(title, body, photos, settings, new Date());
+    return generateArticle(title, body, photos, settings, new Date(), editTarget?.sha, editTarget?.path);
+  }
+
+  function loadPublishedArticle(article: { path: string; sha: string; title: string; body: string }) {
+    setDraft((current) => ({ ...current, title: article.title, body: article.body, photos: [] }));
+    setEditTarget({ path: article.path, sha: article.sha });
+    setPendingArticle(null);
+    setReplaceArticleOpen(false);
+    setNotice(null);
+    setError(null);
   }
 
   async function syncDraft(action: 'save' | 'load') {
@@ -157,6 +169,18 @@ export function App() {
         {busy && <p className="hint" role="status">{text.processing}</p>}
         <div className="publish-row">
           <button className="quiet photo-add" type="button" disabled={disabled} onClick={pickPhoto}>＋ {text.addPhoto}</button>
+          <button className="quiet edit-post" type="button" disabled={disabled} onClick={() => void run(async () => {
+            if (!navigator.onLine) throw new EditorError('offlinePost');
+            const controller = new AbortController();
+            handoff.current = controller;
+            try {
+              const article = await selectArticleForEditing(settings.workerUrl, controller.signal);
+              if (title.trim() || body.trim() || photos.length) {
+                setPendingArticle(article);
+                setReplaceArticleOpen(true);
+              } else loadPublishedArticle(article);
+            } finally { handoff.current = null; }
+          })}>{text.editPublished}</button>
           <button type="button" className="primary" disabled={disabled} onClick={() => void run(async () => {
             if (!navigator.onLine) throw new EditorError('offlinePost');
             const article = currentArticle();
@@ -168,6 +192,7 @@ export function App() {
           })}>{text.post}<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12h16m-6-6 6 6-6 6" /></svg></button>
         </div>
         <div className="editor-notes">
+          {editTarget && <p className="hint">{text.editingPublished.replace('{path}', editTarget.path)}</p>}
           <p className="hint"><span>{photos.length ? text.photoCount.replace('{count}', String(photos.length)) : text.photoHint}</span></p>
           <p className="hint">{text.imageHint}</p>
           <div className="local-status" data-testid="draft-status" data-state={status}>
@@ -212,8 +237,15 @@ export function App() {
           <button className="quiet" type="button" onClick={() => setClearDraftOpen(false)}>{text.cancel}</button>
           <button className="danger" type="button" onClick={() => {
             setClearDraftOpen(false);
-            void run(async () => { await clearDraft(); cursor.current = 0; });
+            void run(async () => { await clearDraft(); cursor.current = 0; setEditTarget(null); });
           }}>{text.confirmDelete}</button>
+        </div>
+      </Modal>}
+      {replaceArticleOpen && pendingArticle && <Modal title={text.replaceDraftTitle} closeLabel={text.close} onClose={() => { setReplaceArticleOpen(false); setPendingArticle(null); }}>
+        <p>{text.replaceDraftWarning}</p>
+        <div className="dialog-actions">
+          <button className="quiet" type="button" onClick={() => { setReplaceArticleOpen(false); setPendingArticle(null); }}>{text.cancel}</button>
+          <button className="primary" type="button" onClick={() => loadPublishedArticle(pendingArticle)}>{text.replaceDraftConfirm}</button>
         </div>
       </Modal>}
       {helpOpen && <HelpDialog language={language} onClose={() => setHelpOpen(false)} />}
