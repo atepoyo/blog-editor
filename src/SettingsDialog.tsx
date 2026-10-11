@@ -9,6 +9,7 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
   const [draft, setDraft] = useState(settings);
   const [error, setError] = useState<MessageKey | null>(null);
   const text = messages[language];
+  const syncSetupGateway = text.syncSetupGateway.replace('{origin}', window.location.origin);
   return (
     <Modal title={text.settings} closeLabel={text.close} onClose={onClose}>
       <form className="settings-form" onSubmit={(event) => {
@@ -44,7 +45,7 @@ export function SettingsDialog({ settings, language, onSave, onClose }: { settin
           <p className="hint"><strong>{text.syncSetupTitle}</strong></p>
           <p className="hint">{text.syncSetupAuth}</p>
           <p className="hint">{text.syncSetupCloudflare}</p>
-          <p className="hint">{text.syncSetupGateway}</p>
+          <p className="hint">{syncSetupGateway}</p>
           <p className="hint">{text.syncSetupUse}</p>
           <a className="hint" href="https://github.com/atepoyo/blog-editor/blob/feat/atepoyo/editor-template/docs/cloudflare-setup.md" target="_blank" rel="noreferrer">{text.syncSetupGuide}</a>
         </section>
