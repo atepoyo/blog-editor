@@ -169,6 +169,18 @@ export function App() {
         {busy && <p className="hint" role="status">{text.processing}</p>}
         <div className="publish-row">
           <button className="quiet photo-add" type="button" disabled={disabled} onClick={pickPhoto}>＋ {text.addPhoto}</button>
+          <button className="quiet edit-post" type="button" disabled={disabled} onClick={() => void run(async () => {
+            if (!navigator.onLine) throw new EditorError('offlinePost');
+            const controller = new AbortController();
+            handoff.current = controller;
+            try {
+              const article = await selectArticleForEditing(settings.workerUrl, controller.signal);
+              if (title.trim() || body.trim() || photos.length) {
+                setPendingArticle(article);
+                setReplaceArticleOpen(true);
+              } else loadPublishedArticle(article);
+            } finally { handoff.current = null; }
+          })}>{text.editPublished}</button>
           <button type="button" className="primary" disabled={disabled} onClick={() => void run(async () => {
             if (!navigator.onLine) throw new EditorError('offlinePost');
             const article = currentArticle();
@@ -195,18 +207,6 @@ export function App() {
               <p className={['failed', 'unauthorized', 'conflict'].includes(syncStatus) ? 'error' : 'hint'} aria-live="polite" data-testid="sync-status">{text[syncStatus === 'disconnected' ? 'disconnected' : syncMessages[syncStatus]]}</p>
             </div>
           </div>
-          <button className="quiet edit-post" type="button" disabled={disabled} onClick={() => void run(async () => {
-            if (!navigator.onLine) throw new EditorError('offlinePost');
-            const controller = new AbortController();
-            handoff.current = controller;
-            try {
-              const article = await selectArticleForEditing(settings.workerUrl, controller.signal);
-              if (title.trim() || body.trim() || photos.length) {
-                setPendingArticle(article);
-                setReplaceArticleOpen(true);
-              } else loadPublishedArticle(article);
-            } finally { handoff.current = null; }
-          })}>{text.editPublished}</button>
           {settings.workerUrl && <div className="sync-actions">
             <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('save'))}>{text.syncSave}</button>
             <button className="quiet" type="button" disabled={disabled || status !== 'saved'} onClick={() => void run(() => syncDraft('load'))}>{text.syncLoad}</button>
