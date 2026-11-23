@@ -65,6 +65,29 @@ it('記事保存ではSHAを渡さず指定されたブランチに新規作成�
   expect(new Headers(request.mock.calls[2]?.[1]?.headers).get('authorization')).toBe('Bearer installation-token');
 });
 
+it('過去記事が50件を超えても各ページの取得を分けて最後まで一覧にできる', async () => {
+  const entries = Array.from({ length: 60 }, (_, index) => ({
+    type: 'file', path: `posts/${1960 + index}-12-08.md`,
+  }));
+  const request = githubRequest().mockImplementation(async (input) => {
+    if (new URL(String(input)).pathname.endsWith('/contents/posts')) return Response.json(entries);
+    return Response.json({ encoding: 'base64', sha: 'a'.repeat(40),
+      content: Buffer.from('---\ntitle: "過去の記事"\ndate: 2019-12-08T00:00:00+09:00\n---\n\n本文').toString('base64') });
+  });
+  const store = await GitHubStore.connect(environment, request);
+  const received: string[] = [];
+  let before: string | undefined;
+  do {
+    request.mockClear();
+    const { articles, nextBefore } = await store.listArticles(before);
+    expect(request).toHaveBeenCalledTimes(21);
+    expect(articles.every((article) => article.title === '過去の記事')).toBe(true);
+    received.push(...articles.map((article) => article.path));
+    before = nextBefore;
+  } while (before);
+  expect(received).toEqual(entries.map((entry) => entry.path).reverse());
+});
+
 it('要求を超える権限を含むトークンは保存に使用しない', async () => {
   const request = vi.fn<typeof fetch>()
     .mockResolvedValueOnce(Response.json({ id: 1, account: { login: 'owner', type: 'User' } }))

@@ -11,10 +11,14 @@ import { MarkdownPreview } from './MarkdownPreview';
 import { EditorError, messages } from './messages';
 import { postArticle } from './post';
 import { parsePublishedArticle } from './article';
+import { articlePathSchema } from '../worker/submission';
 import './style.css';
 
 const originSchema = z.url().refine((value) => new URL(value).origin === value);
-const articleListSchema = z.object({ articles: z.array(z.object({ path: z.string(), title: z.string() })) });
+const articleListSchema = z.object({
+  articles: z.array(z.object({ path: articlePathSchema, title: z.string() })),
+  nextBefore: articlePathSchema.optional(),
+});
 const publishedArticleSchema = z.object({ path: z.string(), markdown: z.string(), sha: z.string() });
 
 function Publish() {
@@ -23,7 +27,7 @@ function Publish() {
   const [destination, setDestination] = useState<Destination | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
   const [editorOrigin, setEditorOrigin] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [editSessionId, setEditSessionId] = useState<string | null>(null);
@@ -52,13 +56,25 @@ function Publish() {
           received = true;
           setEditMode(true);
           setEditSessionId(id);
-          void fetch('/posts?articles=1', { credentials: 'same-origin', cache: 'no-store', redirect: 'error' })
-            .then(async (response) => {
+          async function loadArticles() {
+            let before: string | undefined;
+            do {
+              const params = new URLSearchParams({ articles: '1' });
+              if (before) params.set('before', before);
+              const response = await fetch(`/posts?${params}`, { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
               if (!response.ok) throw new Error('過去の記事を取得できません。投稿先の設定を確認してください。');
               const parsed = articleListSchema.safeParse(await response.json());
-              if (!parsed.success) throw new Error('過去の記事の一覧を読み取れません。');
-              setEditArticles(parsed.data.articles);
-            }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : '過去の記事を取得できません。'));
+              if (!parsed.success || (before && parsed.data.nextBefore && parsed.data.nextBefore >= before)) {
+                throw new Error('過去の記事の一覧を読み取れません。');
+              }
+              if (!active) return;
+              setEditArticles((current) => [...(current ?? []), ...parsed.data.articles]);
+              before = parsed.data.nextBefore;
+            } while (before);
+          }
+          void loadArticles().catch((reason: unknown) => {
+            if (active) setError(reason instanceof Error ? reason.message : '過去の記事を取得できません。');
+          });
           window.removeEventListener('message', receive);
           return;
         }
@@ -93,7 +109,7 @@ function Publish() {
   }, []);
 
   return <main className="publish-page">
-    <header className="app-header"><h1>{editMode ? '過去の記事を編集' : syncSession ? '下書きの同期' : '投稿の確認'}</h1></header>
+    <header className="app-header"><h1>{editMode ? '過去の記事を編集' : syncSession ? '下書きの同期' : article?.editSha ? '記事の更新を確認' : '投稿の確認'}</h1></header>
     {!syncSession && !editMode && <p>投稿先と本文・写真を確認してから、投稿を確定してください。</p>}
     {destination && !syncSession && !editMode && <dl>
       <dt>投稿先</dt><dd>GitHub {destination.owner}/{destination.repository}</dd>
@@ -101,7 +117,7 @@ function Publish() {
     {!article && !syncSession && !editMode && !error && <p role="status">共通Editorから記事と写真を受け取るのを待っています。</p>}
     {editMode && <section aria-label="編集する記事">
       <p>編集する記事を選んでください。</p>
-      {editArticles === null ? <p role="status">過去の記事を読み込んでいます…</p> : editArticles.length === 0
+      {editArticles === null ? !error && <p role="status">過去の記事を読み込んでいます…</p> : editArticles.length === 0
         ? <p role="status">記事がありません。</p>
         : <ul className="published-articles">
           {editArticles.map((item) => <li key={item.path}>
@@ -118,7 +134,7 @@ function Publish() {
                 if (!opener || !editorOrigin) throw new Error('元の編集画面に戻れません。');
                 opener.postMessage(encodeEditArticle(result.data, editSessionId), editorOrigin);
                 window.opener = null;
-                setSaved(true);
+                setSavedPath(result.data.path);
                 setTimeout(() => window.close(), 50);
               } catch (reason) { setError(reason instanceof Error ? reason.message : '記事を取得できません。'); }
               finally { setSelectingPath(null); }
@@ -128,24 +144,25 @@ function Publish() {
             </button>
           </li>)}
         </ul>}
-      {saved && <p role="status">記事を編集画面に読み込みました。</p>}
+      {savedPath && <p role="status">記事を編集画面に読み込みました。</p>}
     </section>}
     {syncSession && <SyncConfirmation session={syncSession} />}
     {article && <>
+      <h2>{savedPath ?? article.path}</h2>
+      {!article.editSha && !savedPath && <p>同日の記事がある場合、保存名に -2、-3… を付けます。</p>}
       <MarkdownPreview article={article} />
-      <button className="primary full" disabled={!destination || busy || saved} onClick={async () => {
-        if (busy || saved) return;
+      <button className="primary full" disabled={!destination || busy || savedPath !== null} onClick={async () => {
+        if (busy || savedPath !== null) return;
         setBusy(true); setError(null);
         try {
-          await postArticle(article, new URL('/posts', location.origin).href);
-          setSaved(true);
+          setSavedPath(await postArticle(article, new URL('/posts', location.origin).href));
         }
         catch (reason) { setError(reason instanceof EditorError ? messages.ja[reason.key] : messages.ja.operationFailed); }
         finally { setBusy(false); }
-      }}>投稿を確定</button>
+      }}>{article.editSha ? '更新を確定' : '投稿を確定'}</button>
+      {savedPath && <p role="status">{article.editSha ? '更新しました。' : '投稿しました。'}<span>{savedPath}</span></p>}
     </>}
     {busy && <p role="status">投稿中…</p>}
-    {saved && <p role="status">投稿しました。</p>}
     {error && <p role="alert" className="error">{error}</p>}
     {editorOrigin && <button className="quiet full" type="button" onClick={() => {
       window.close();

@@ -1,6 +1,7 @@
 import { accessConfig, allowedOrigin, response, verifyAccess } from './access';
 import type { AccessConfig, AccessEnvironment } from './access';
 import { ArticleConflictError, GitHubStore, StorageError } from './github';
+import type { ArticlePage } from './github';
 import { InvalidSubmissionError, parseArticlePath, parseSubmission } from './submission';
 import { handleDraftSync } from './draftSync';
 import type { DraftBucket } from './draftSync';
@@ -22,7 +23,7 @@ export interface PublisherEnvironment extends AccessEnvironment {
 export interface ArticleStore {
   exists(path: string): Promise<boolean>;
   createArticle(path: string, markdown: string): Promise<void>;
-  listArticles?(): Promise<{ path: string; title: string }[]>;
+  listArticles?(before?: string): Promise<ArticlePage>;
   readArticle?(path: string): Promise<{ markdown: string; sha: string } | null>;
   updateArticle?(path: string, markdown: string, sha: string): Promise<void>;
 }
@@ -69,10 +70,13 @@ export async function handlePublisher(request: Request, environment: PublisherEn
           repository: environment.GITHUB_REPOSITORY, branch: environment.GITHUB_BRANCH });
         return response(200, destination);
       }
-      if (url.search === '?articles=1') {
+      if (url.searchParams.get('articles') === '1') {
+        if (url.searchParams.getAll('articles').length !== 1 || url.searchParams.getAll('before').length > 1
+          || [...url.searchParams.keys()].some((key) => key !== 'articles' && key !== 'before')) throw new InvalidSubmissionError();
+        const before = url.searchParams.has('before') ? parseArticlePath(url.searchParams.get('before')) : undefined;
         const store = await dependencies.connect(environment);
         if (!store.listArticles) throw new StorageError();
-        return response(200, { articles: await store.listArticles() });
+        return response(200, await store.listArticles(before));
       }
       if (url.searchParams.has('article')) {
         const path = parseArticlePath(url.searchParams.get('article'));

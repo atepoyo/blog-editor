@@ -5,7 +5,7 @@ export const postingUrl = `${postingOrigin}/publish`;
 
 export async function preparePosting(context: BrowserContext, editorUrl: string) {
   const editorOrigin = new URL(editorUrl).origin;
-  await context.route(`${postingOrigin}/publish`, async (route) => {
+  await context.route((url) => url.origin === postingOrigin && url.pathname === '/publish', async (route) => {
     const response = await fetch(new URL('/publish.html', editorOrigin));
     const html = (await response.text()).replace('__BLOG_EDITOR_ORIGIN__', editorOrigin);
     await route.fulfill({ contentType: 'text/html', headers: { 'cache-control': 'no-store' }, body: html });

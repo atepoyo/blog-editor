@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const articlePathSchema = z.string().regex(/^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/).refine((path) => {
+export const articlePathSchema = z.string().regex(/^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/).refine((path) => {
   const day = path.slice(6, 16);
   const date = new Date(`${day}T00:00:00.000Z`);
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === day;

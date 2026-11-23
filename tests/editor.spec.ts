@@ -143,6 +143,21 @@ test('未接続でも記事を書けて投稿操作だけを表示する', async
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('本文の長押しで写真メニューを開き右クリックでは開かない', async ({ page }) => {
+  await page.goto('/');
+  const body = page.getByRole('textbox', { name: '本文', exact: true });
+  await body.click({ button: 'right' });
+  await expect(page.getByRole('dialog', { name: '写真を追加', exact: true })).toHaveCount(0);
+
+  const box = await body.boundingBox();
+  if (!box) throw new Error('本文欄が見つかりません。');
+  await page.mouse.move(box.x + 20, box.y + 20);
+  await page.mouse.down();
+  await page.waitForTimeout(600);
+  await expect(page.getByRole('dialog', { name: '写真を追加', exact: true })).toBeVisible();
+  await page.mouse.up();
+});
+
 test('日英を切り替えても記事・写真・設定を保ち案内とエラーを翻訳する', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByPlaceholder('タイトル', { exact: true })).toBeVisible();

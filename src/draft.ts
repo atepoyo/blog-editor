@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import type { Photo, Settings } from './article';
+import type { EditTarget, Photo, Settings } from './article';
 import { syncMetadataSchema } from './syncProtocol';
+import { articlePathSchema } from '../worker/submission';
 import type { SyncMetadata } from './syncProtocol';
 
 export interface Draft {
@@ -9,6 +10,7 @@ export interface Draft {
   photos: Photo[];
   settings: Settings;
   sync?: SyncMetadata;
+  editTarget?: EditTarget & { workerUrl: string };
 }
 
 const recordSchema = z.object({
@@ -17,6 +19,7 @@ const recordSchema = z.object({
   body: z.string(),
   photoPaths: z.array(z.string()),
   sync: syncMetadataSchema.optional(),
+  editTarget: z.object({ path: articlePathSchema, sha: z.string().regex(/^[\da-f]{40}$/i), frontmatter: z.string(), workerUrl: z.url() }).optional(),
   settings: z.object({
     imageStorage: z.enum(['r2', 'github']).optional(),
     publicImageUrl: z.string(),
@@ -33,7 +36,7 @@ export class LocalDraftConflict extends Error {}
 
 function draftRecord(draft: Draft) {
   return recordSchema.parse({ version: 1, title: draft.title, body: draft.body, settings: draft.settings,
-    photoPaths: draft.photos.map((photo) => photo.path), ...(draft.sync ? { sync: draft.sync } : {}) });
+    photoPaths: draft.photos.map((photo) => photo.path), sync: draft.sync, editTarget: draft.editTarget });
 }
 
 export function createDraftStore() {
@@ -96,7 +99,7 @@ export function createDraftStore() {
             if (!photo) throw new Error('A saved photo is missing.');
             return photo;
           });
-          resolve({ title: record.title, body: record.body, settings: record.settings, photos, ...(record.sync ? { sync: record.sync } : {}) });
+          resolve({ title: record.title, body: record.body, settings: record.settings, photos, sync: record.sync, editTarget: record.editTarget });
         } catch (error) { reject(error); }
       };
     });

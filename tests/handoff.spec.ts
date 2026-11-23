@@ -36,6 +36,43 @@ async function multipart(route: Route) {
   return parseSubmission(form);
 }
 
+test('過去記事を複数ページから取得し再読み込み後も元の記事を更新する', async ({ page, context }) => {
+  const recentPath = 'posts/2026-10-10.md';
+  const path = 'posts/2019-12-08.md';
+  const sha = 'a'.repeat(40);
+  const frontmatter = '---\ntitle: "旧記事"\ndate: 2019-12-08T00:00:00+09:00\ncategories:\n  - diary\n---\n\n';
+  const reads: string[] = [];
+  await page.goto('/');
+  await preparePosting(context, page.url());
+  await configure(page);
+  await context.route(`${postingOrigin}/posts*`, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.search === '?destination=1') return route.fulfill({ json: { owner: 'owner', repository: 'blog', branch: 'main' } });
+    if (url.search === '?articles=1') return route.fulfill({ json: { articles: [{ path: recentPath, title: '最近の記事' }], nextBefore: recentPath } });
+    if (url.searchParams.get('before') === recentPath) return route.fulfill({ json: { articles: [{ path, title: '旧記事' }] } });
+    if (url.searchParams.get('article') === path) return route.fulfill({ json: { path, sha, markdown: frontmatter + '旧本文\n' } });
+    reads.push(route.request().method());
+    expect(route.request().method()).toBe('POST');
+    const update = await multipart(route);
+    expect(update.articlePath).toBe(path);
+    expect(update.editSha).toBe(sha);
+    expect(update.markdown.replaceAll('\r\n', '\n')).toBe(frontmatter.replace('旧記事', '修正した記事') + '修正した本文\n');
+    return route.fulfill({ status: 200, json: { articlePath: path } });
+  });
+  const [picker] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: '過去の記事を編集' }).click()]);
+  await picker.getByRole('button', { name: /旧記事/ }).click();
+  await expect(page.getByLabel('本文', { exact: true })).toHaveValue('旧本文');
+  await page.getByLabel('タイトル', { exact: true }).fill('修正した記事');
+  await page.getByLabel('本文', { exact: true }).fill('修正した本文');
+  await expect(page.getByTestId('draft-status')).toHaveAttribute('data-state', 'saved');
+  await page.reload();
+  await expect(page.getByText(`編集中：${path}`)).toBeVisible();
+  const confirmation = await popup(page);
+  await confirmation.getByRole('button', { name: '更新を確定', exact: true }).click();
+  await expect(confirmation.getByRole('status')).toHaveText(`更新しました。${path}`);
+  expect(reads).toEqual(['POST']);
+});
+
 test('異なるoriginに本文と写真を直接渡し本人の最終確認前は保存しない', async ({ page, context }) => {
   const sent: string[] = []; const messages: unknown[] = [];
   await page.exposeFunction('recordMessage', (data: unknown) => messages.push(data));
@@ -59,9 +96,9 @@ test('異なるoriginに本文と写真を直接渡し本人の最終確認前�
   const target = await popup(page);
   expect(new URL(target.url()).origin).not.toBe(new URL(page.url()).origin);
   expect(target.url()).toBe(postingUrl);
-  await expect(target.locator('.article-confirmation')).toContainText('別originの記事');
-  await expect(target.getByRole('img')).toHaveCount(1);
-  await expect(target.getByText('owner/blog', { exact: true })).toBeVisible();
+  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toContainText('別originの記事');
+  await expect(target.getByRole('article', { name: '記事のプレビュー' }).locator('img')).toHaveCount(1);
+  await expect(target.getByText('GitHub owner/blog', { exact: true })).toBeVisible();
   await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
   expect(sent).toEqual([]);
   await expect(page.getByLabel('本文', { exact: true })).toHaveValue(body);
@@ -118,7 +155,7 @@ test('未認証の確認要求ではデータを渡さずタブを閉じても�
   const body = await page.getByLabel('本文', { exact: true }).inputValue();
   const target = await popup(page);
   await expect(target.getByRole('alert')).toContainText('投稿先を確認できません');
-  await expect(target.locator('.article-confirmation')).toHaveCount(0);
+  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toHaveCount(0);
   await expect(target.getByRole('button', { name: '投稿を確定', exact: true })).toHaveCount(0);
   await target.close(); await expect(page.getByRole('alert')).toContainText('下書きと写真は残っています');
   await page.reload(); await expect(page.getByLabel('本文', { exact: true })).toHaveValue(body);
@@ -130,7 +167,7 @@ test('許可外origin・別Window・別ID・不正形式を拒否し正しい送
   const editorOrigin = new URL(page.url()).origin;
   const [target] = await Promise.all([page.waitForEvent('popup'), page.evaluate((url) => { window.open(url, '_blank'); }, postingUrl)]);
   await expect(target.getByText('共通Editorから記事と写真を受け取るのを待っています。')).toBeVisible();
-  await expect(target.getByText('GitHub', { exact: true })).toBeVisible();
+  await expect(target.getByText('GitHub owner/blog', { exact: true })).toBeVisible();
   const id = '550e8400-e29b-41d4-a716-446655440000';
   await target.evaluate(({ origin, id }) => {
     const opener: Window | null = window.opener;
@@ -152,12 +189,12 @@ test('許可外origin・別Window・別ID・不正形式を拒否し正しい送
     dispatch({ ...message, token: 'unexpected-token' });
     dispatch({ ...message, article: { ...message.article, path: '../README.md' } });
   }, { origin: editorOrigin, id });
-  await expect(target.locator('.article-confirmation')).toHaveCount(0);
+  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toHaveCount(0);
   await target.evaluate(({ origin, id }) => {
     window.dispatchEvent(new MessageEvent('message', { source: window.opener, origin,
       data: { type: 'blog-md:article', id, article: { markdown: '許可された本文', path: 'posts/2026-10-10.md', images: [] } } }));
   }, { origin: editorOrigin, id });
-  await expect(target.locator('.article-confirmation')).toHaveText('許可された本文');
+  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toHaveText('許可された本文');
 });
 
 test('保存失敗と確認応答の喪失でもEditorと投稿画面の写真を保持する', async ({ page, context }) => {
@@ -174,7 +211,7 @@ test('保存失敗と確認応答の喪失でもEditorと投稿画面の写真�
   const body = await page.getByLabel('本文', { exact: true }).inputValue();
   const target = await popup(page); await target.getByRole('button', { name: '投稿を確定' }).click();
   await expect(target.getByRole('alert')).toContainText('入力と写真は残っています');
-  await expect(target.getByRole('img')).toHaveCount(1);
+  await expect(target.getByRole('article', { name: '記事のプレビュー' }).locator('img')).toHaveCount(1);
   await expect(page.getByLabel('本文', { exact: true })).toHaveValue(body);
   await target.getByRole('button', { name: '投稿を確定' }).click(); await expect(target.getByRole('status')).toContainText('投稿しました');
   expect(posts).toBe(2);
@@ -193,7 +230,7 @@ test('認証中のリダイレクト先へ本文写真を送らずログイン�
   await expect(page.getByRole('button', { name: '受け渡しを中止' })).toBeVisible();
   expect(await target.locator('body').getAttribute('data-messages')).toBeNull();
   authenticated = true; await target.goto(postingUrl);
-  await expect(target.locator('.article-confirmation')).toContainText('別originの記事');
+  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toContainText('別originの記事');
   await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
 });
 
@@ -233,7 +270,7 @@ test('確定時に認証が切れた転送では本文写真をログイン先�
   await target.getByRole('button', { name: '投稿を確定' }).click();
   await expect(target.getByRole('alert')).toContainText('入力と写真は残っています');
   expect(loginCalls).toBe(0);
-  await expect(target.getByRole('img')).toHaveCount(1);
+  await expect(target.getByRole('article', { name: '記事のプレビュー' }).locator('img')).toHaveCount(1);
   await expect(page.getByLabel('本文', { exact: true })).toHaveValue(body);
 });
 
