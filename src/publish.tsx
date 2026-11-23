@@ -33,6 +33,10 @@ function Publish() {
   const [editSessionId, setEditSessionId] = useState<string | null>(null);
   const [editArticles, setEditArticles] = useState<{ path: string; title: string }[] | null>(null);
   const [selectingPath, setSelectingPath] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState('');
+  const articleMonths = [...new Set(editArticles?.map(({ path }) => path.slice(6, 13)))].sort().reverse();
+  const visibleArticles = editArticles?.filter(({ path }) => !selectedMonth || path.slice(6, 13) === selectedMonth);
+
   useEffect(() => {
     let active = true;
     const opener: Window | null = window.opener;
@@ -115,13 +119,19 @@ function Publish() {
       <dt>投稿先</dt><dd>GitHub {destination.owner}/{destination.repository}</dd>
     </dl>}
     {!article && !syncSession && !editMode && !error && <p role="status">共通Editorから記事と写真を受け取るのを待っています。</p>}
-    {editMode && <section aria-label="編集する記事">
-      <p>編集する記事を選んでください。</p>
-      {editArticles === null ? !error && <p role="status">過去の記事を読み込んでいます…</p> : editArticles.length === 0
+    {editMode && <section className="published-article-picker" aria-label="編集する記事">
+      {articleMonths.length > 0 && <label className="article-month">
+        公開月
+        <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.currentTarget.value)}>
+          <option value="">すべての月</option>
+          {articleMonths.map((month) => <option key={month} value={month}>{month.slice(0, 4)}年{Number(month.slice(5))}月</option>)}
+        </select>
+      </label>}
+      {!visibleArticles ? !error && <p role="status">過去の記事を読み込んでいます…</p> : visibleArticles.length === 0
         ? <p role="status">記事がありません。</p>
         : <ul className="published-articles">
-          {editArticles.map((item) => <li key={item.path}>
-            <button className="quiet full" type="button" disabled={selectingPath !== null} onClick={async () => {
+          {visibleArticles.map((item) => <li key={item.path}>
+            <button className="full" type="button" disabled={selectingPath !== null} onClick={async () => {
               if (!editSessionId || selectingPath) return;
               setSelectingPath(item.path); setError(null);
               try {
@@ -139,8 +149,9 @@ function Publish() {
               } catch (reason) { setError(reason instanceof Error ? reason.message : '記事を取得できません。'); }
               finally { setSelectingPath(null); }
             }}>
-              {item.title}<span className="article-path">{item.path}</span>
-              {selectingPath === item.path && <span role="status">読み込み中…</span>}
+              <span className="article-title">{item.title}</span>
+              <time className="article-date" dateTime={item.path.slice(6, 16)}>{item.path.slice(6, -3)}</time>
+              {selectingPath === item.path && <span className="article-loading" role="status">読み込み中…</span>}
             </button>
           </li>)}
         </ul>}

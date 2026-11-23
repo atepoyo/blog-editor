@@ -165,9 +165,21 @@ dialog form { display: grid; gap: var(--space-2); }
 .publish-page { display: grid; gap: var(--space-2); }
 .publish-page h1 { font-size: 24px; margin: 0; }
 .publish-page dd { margin: 0 0 12px; overflow-wrap: anywhere; }
+.published-article-picker { display: grid; gap: var(--space-2); min-width: 0; }
+.published-article-picker > p { margin: 0; }
+.article-month { display: grid; gap: var(--space-1); width: min(100%, 240px); font-size: 14px; font-weight: 600; }
+.article-month select { height: 48px; padding-block: 0; }
 .published-articles { display: grid; gap: var(--space-1); margin: 0; padding: 0; list-style: none; }
-.published-articles button { display: grid; gap: 4px; justify-items: start; text-align: start; }
-.article-path { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.published-articles button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7rem;
+  align-items: baseline;
+  gap: 4px var(--space-1);
+  text-align: start;
+}
+.article-title { overflow-wrap: anywhere; }
+.article-date { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-align: end; overflow-wrap: anywhere; }
+.article-loading { grid-column: 1 / -1; font-size: 12px; }
 .article-preview { min-width: 0; overflow-wrap: anywhere; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .article-preview > :first-child { margin-top: 0; }
 .article-preview > :last-child { margin-bottom: 0; }
