@@ -73,6 +73,66 @@ test('過去記事を複数ページから取得し再読み込み後も元の�
   expect(reads).toEqual(['POST']);
 });
 
+test('公開月で記事を絞り込み連番の日付を表示しすべての月へ戻せる', async ({ page, context }) => {
+  const recentPath = 'posts/2026-10-10.md';
+  const numberedPath = 'posts/2026-10-10-2.md';
+  const previousYearPath = 'posts/2025-10-12.md';
+  const adjacentMonthPath = 'posts/2026-09-30.md';
+  await page.goto('/');
+  await preparePosting(context, page.url());
+  await configure(page);
+  await context.route(`${postingOrigin}/posts*`, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.search === '?destination=1') return route.fulfill({ json: { owner: 'owner', repository: 'blog', branch: 'main' } });
+    if (url.search === '?articles=1') return route.fulfill({ json: {
+      articles: [{ path: recentPath, title: '十月の記事とても長いタイトルでも横にはみ出さず読みやすく表示されることを確認します' }], nextBefore: recentPath,
+    } });
+    if (url.searchParams.get('before') === recentPath) return route.fulfill({ json: { articles: [
+      { path: numberedPath, title: '十月の連番記事' },
+      { path: adjacentMonthPath, title: '九月の記事' },
+      { path: previousYearPath, title: '前年十月の記事' },
+    ] } });
+    throw new Error(`予期しない記事取得: ${url.search}`);
+  });
+
+  const [picker] = await Promise.all([page.waitForEvent('popup'), page.getByRole('button', { name: '過去の記事を編集' }).click()]);
+  const monthFilter = picker.getByRole('combobox', { name: '公開月' });
+  const longTitleButton = picker.getByRole('button', { name: /^十月の記事/ });
+  const numberedButton = picker.getByRole('button', { name: /^十月の連番記事/ });
+  const previousYearButton = picker.getByRole('button', { name: /^前年十月の記事/ });
+  const adjacentMonthButton = picker.getByRole('button', { name: /^九月の記事/ });
+  await expect(monthFilter).toHaveValue('');
+  await expect(monthFilter.locator('option')).toHaveText(['すべての月', '2026年10月', '2026年9月', '2025年10月']);
+
+  await monthFilter.selectOption('2026-10');
+  await expect(longTitleButton).toBeVisible();
+  await expect(numberedButton).toBeVisible();
+  await expect(previousYearButton).toHaveCount(0);
+  await expect(adjacentMonthButton).toHaveCount(0);
+
+  await monthFilter.selectOption('');
+  await expect(longTitleButton).toBeVisible();
+  await expect(numberedButton).toBeVisible();
+  await expect(previousYearButton).toBeVisible();
+  await expect(adjacentMonthButton).toBeVisible();
+  await expect(longTitleButton.locator('time.article-date')).toHaveText('2026-10-10');
+  await expect(numberedButton.locator('time.article-date')).toHaveText('2026-10-10-2');
+
+  await picker.setViewportSize({ width: 320, height: 720 });
+  const titlePositions = await Promise.all([longTitleButton, numberedButton, previousYearButton, adjacentMonthButton]
+    .map((button) => button.locator('span.article-title').boundingBox()));
+  const datePositions = await Promise.all([longTitleButton, numberedButton, previousYearButton, adjacentMonthButton]
+    .map((button) => button.locator('time.article-date').boundingBox()));
+  if (titlePositions.some((box) => box === null) || datePositions.some((box) => box === null)) {
+    throw new Error('公開記事一覧のレイアウトを取得できません。');
+  }
+  const visibleTitlePositions = titlePositions.filter((box) => box !== null);
+  const visibleDatePositions = datePositions.filter((box) => box !== null);
+  expect(new Set(visibleTitlePositions.map((box) => box.x)).size).toBe(1);
+  expect(new Set(visibleDatePositions.map((box) => box.x + box.width)).size).toBe(1);
+  expect(await picker.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
 test('異なるoriginに本文と写真を直接渡し本人の最終確認前は保存しない', async ({ page, context }) => {
   const sent: string[] = []; const messages: unknown[] = [];
   await page.exposeFunction('recordMessage', (data: unknown) => messages.push(data));
