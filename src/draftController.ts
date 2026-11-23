@@ -100,7 +100,7 @@ export class DraftController {
       throw new EditorError('draftDeleteFailed');
     }
     const previous = this.state.draft;
-    this.update({ ...previous, title: '', body: '', photos: [] });
+    this.update({ ...previous, title: '', body: '', photos: [], editTarget: undefined });
     await this.persist();
     if (this.state.status !== 'saved') {
       this.emit({ draft: previous });
@@ -180,7 +180,7 @@ export class DraftController {
             this.emit({ syncStatus: 'conflict' });
             return;
           } else {
-            await this.replace({ ...current, ...decodeDraft(cloud), sync: { ...sync, baseRevision: cloud.revision } });
+            await this.replace({ ...current, ...decodeDraft(cloud), editTarget: undefined, sync: { ...sync, baseRevision: cloud.revision } });
           }
         }
       }
@@ -225,7 +225,7 @@ export class DraftController {
     const backup = choice === 'local' ? cloud : await encodeDraft(current, sync.changeId ?? crypto.randomUUID());
     // 写真の読み出し中にも入力できるため、その後の編集を古い選択結果で上書きしない。
     if (current !== this.state.draft) return;
-    await this.replace({ ...current, ...(choice === 'cloud' ? decodeDraft(cloud) : {}), sync: {
+    await this.replace({ ...current, ...(choice === 'cloud' ? { ...decodeDraft(cloud), editTarget: undefined } : {}), sync: {
       ...sync, baseRevision: cloud.revision, changeId: choice === 'local' ? crypto.randomUUID() : null,
       conflict: null, backup,
     } });

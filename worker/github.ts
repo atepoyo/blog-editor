@@ -2,6 +2,7 @@ import { createPrivateKey } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { importPKCS8, SignJWT } from 'jose';
 import { z } from 'zod';
+import { articlePathSchema } from './submission';
 
 const githubSchema = z.object({
   GITHUB_APP_ID: z.string().regex(/^\d+$/),
@@ -21,6 +22,8 @@ const tokenSchema = z.object({
 });
 const contentFileSchema = z.object({ content: z.string(), encoding: z.literal('base64'), sha: z.string().regex(/^[\da-f]{40}$/i) });
 const directorySchema = z.array(z.object({ type: z.string(), path: z.string() }));
+// タイトル取得は1記事につき1 subrequestを使うため、一覧を分割してWorkersの上限内に収める。
+const articlePageSize = 20;
 
 export class StorageError extends Error {
   constructor() { super('保存先への操作に失敗しました。'); }
@@ -96,19 +99,20 @@ export class GitHubStore {
     return true;
   }
 
-  async listArticles(): Promise<{ path: string; title: string }[]> {
+  async listArticles(before?: string): Promise<ArticlePage> {
     const result = await this.request(this.contentUrl('posts'), { headers: GitHubStore.headers(this.token), redirect: 'manual' });
-    if (result.status === 404) return [];
+    if (result.status === 404) return { articles: [] };
     if (result.status !== 200) throw new StorageError();
     const entries = directorySchema.safeParse(await result.json().catch(() => null));
     if (!entries.success) throw new StorageError();
-    const paths = entries.data.filter((entry) => entry.type === 'file' && /^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/.test(entry.path))
-      .map((entry) => entry.path).sort((left, right) => right.localeCompare(left));
-    return Promise.all(paths.map(async (path) => {
+    const paths = entries.data.filter((entry) => entry.type === 'file' && articlePathSchema.safeParse(entry.path).success)
+      .map((entry) => entry.path).filter((path) => !before || path < before).sort().reverse();
+    const page = paths.slice(0, articlePageSize);
+    const articles = await Promise.all(page.map(async (path) => {
       const article = await this.readArticle(path);
-      if (!article) throw new StorageError();
-      return { path, title: this.titleFromMarkdown(article.markdown) ?? path.slice(6, -3) };
+      return { path, title: (article && this.titleFromMarkdown(article.markdown)) || path.slice(6, -3) };
     }));
+    return { articles, nextBefore: paths.length > articlePageSize ? page.at(-1) : undefined };
   }
 
   async readArticle(path: string): Promise<{ markdown: string; sha: string } | null> {
@@ -157,4 +161,9 @@ export class GitHubStore {
       body: JSON.stringify({ message, content, branch: this.branch }),
     });
   }
+}
+
+export interface ArticlePage {
+  articles: { path: string; title: string }[];
+  nextBefore?: string;
 }

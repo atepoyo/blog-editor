@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent } from 'react';
 import { generateArticle, insertPhoto } from './article';
-import type { Photo } from './article';
+import type { EditTarget, Photo } from './article';
 import { Modal } from './Modal';
 import { SettingsDialog } from './SettingsDialog';
 import { HelpDialog } from './HelpDialog';
@@ -26,7 +26,7 @@ export function App() {
   const [replaceArticleOpen, setReplaceArticleOpen] = useState(false);
   const text = messages[language];
   const { draft, setDraft, clearDraft, loading, status, syncStatus, acceptManualSync, resolveConflict } = useDraft();
-  const { title, body, photos, settings } = draft;
+  const { title, body, photos, settings, editTarget } = draft;
   const [pendingPhoto, setPendingPhoto] = useState<Photo | null>(null);
   const [caption, setCaption] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -36,8 +36,7 @@ export function App() {
   const [offline, setOffline] = useState<'offlinePreparing' | 'offlineReady' | 'offlineFailed' | null>(import.meta.env.PROD ? 'offlinePreparing' : null);
   const draftMessage = status === 'saved' ? null : draftMessages[status];
   const [notice, setNotice] = useState<{ path: string } | null>(null);
-  const [editTarget, setEditTarget] = useState<{ path: string; sha: string } | null>(null);
-  const [pendingArticle, setPendingArticle] = useState<{ path: string; sha: string; title: string; body: string } | null>(null);
+  const [pendingArticle, setPendingArticle] = useState<(EditTarget & { title: string; body: string }) | null>(null);
   const [error, setError] = useState<MessageKey | null>(null);
   const textArea = useRef<HTMLTextAreaElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -97,12 +96,12 @@ export function App() {
   }
 
   function currentArticle() {
-    return generateArticle(title, body, photos, settings, new Date(), editTarget?.sha, editTarget?.path);
+    if (editTarget && editTarget.workerUrl !== settings.workerUrl) throw new EditorError('editTargetChanged');
+    return generateArticle(title, body, photos, settings, new Date(), editTarget);
   }
 
-  function loadPublishedArticle(article: { path: string; sha: string; title: string; body: string }) {
-    setDraft((current) => ({ ...current, title: article.title, body: article.body, photos: [] }));
-    setEditTarget({ path: article.path, sha: article.sha });
+  function loadPublishedArticle({ title, body, ...target }: EditTarget & { title: string; body: string }) {
+    setDraft((current) => ({ ...current, title, body, photos: [], editTarget: { ...target, workerUrl: settings.workerUrl } }));
     setPendingArticle(null);
     setReplaceArticleOpen(false);
     setNotice(null);
@@ -153,8 +152,10 @@ export function App() {
             if (press.current && Math.hypot(event.clientX - press.current.x, event.clientY - press.current.y) > 10) cancelPress();
           }}
           onContextMenu={(event) => {
+            if (disabled || event.button !== 0) return;
             event.preventDefault();
-            if (!disabled) { cursor.current = event.currentTarget.selectionStart; setPhotoMenuOpen(true); }
+            cursor.current = event.currentTarget.selectionStart;
+            setPhotoMenuOpen(true);
           }}
         />
         <input ref={fileInput} type="file" accept="image/*,.heic,.heif" aria-label={text.photoInput} className="file-input" onChange={(event) => {
@@ -230,7 +231,7 @@ export function App() {
           <button className="quiet" type="button" onClick={() => setClearDraftOpen(false)}>{text.cancel}</button>
           <button className="danger" type="button" onClick={() => {
             setClearDraftOpen(false);
-            void run(async () => { await clearDraft(); cursor.current = 0; setEditTarget(null); });
+            void run(async () => { await clearDraft(); cursor.current = 0; });
           }}>{text.confirmDelete}</button>
         </div>
       </Modal>}

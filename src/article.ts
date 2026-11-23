@@ -2,6 +2,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 import { z } from 'zod';
 import { EditorError } from './messages';
+import { parseArticlePath } from '../worker/submission';
 
 export interface Settings {
   publicImageUrl: string;
@@ -19,6 +20,14 @@ export interface Article {
   images: Photo[];
   editSha?: string;
 }
+
+export interface EditTarget {
+  path: string;
+  sha: string;
+  frontmatter: string;
+}
+
+const titleLine = /^title: ("(?:\\.|[^"\\])*")\r?$/m;
 
 const httpUrl = z.url().refine((value) => {
   const url = new URL(value);
@@ -66,8 +75,7 @@ export function generateArticle(
   photos: Photo[],
   settings: Settings,
   now: Date,
-  editSha?: string,
-  editPath?: string,
+  editTarget?: EditTarget,
 ): Article {
   if (!title.trim()) throw new EditorError('titleRequired');
   const tree = fromMarkdown(body);
@@ -98,25 +106,25 @@ export function generateArticle(
   for (const replacement of replacements.sort((a, b) => b.start - a.start)) {
     markdownBody = markdownBody.slice(0, replacement.start) + replacement.value + markdownBody.slice(replacement.end);
   }
-  const date = editPath ? editPath.slice(6, 16) : localDate(now);
+  const date = localDate(now);
+  const titleField = `title: ${JSON.stringify(title.trim())}`;
+  const frontmatter = editTarget
+    ? editTarget.frontmatter.replace(titleLine, (line) => titleField + (line.endsWith('\r') ? '\r' : ''))
+    : `---\n${titleField}\ndate: ${JSON.stringify(date)}\n---\n\n`;
   return {
-    markdown: `---\ntitle: ${JSON.stringify(title.trim())}\ndate: ${JSON.stringify(date)}\n---\n\n${markdownBody}\n`,
-    path: editPath ?? `posts/${date}.md`,
+    markdown: `${frontmatter}${markdownBody}\n`,
+    path: editTarget?.path ?? `posts/${date}.md`,
     images: photos.filter((photo) => used.has(photo)),
-    ...(editSha ? { editSha } : {}),
+    ...(editTarget ? { editSha: editTarget.sha } : {}),
   };
 }
 
 export function parsePublishedArticle(markdown: string, path: string, sha: string) {
-  const frontmatter = /^---\r?\ntitle: ("(?:\\.|[^"\\])*")\r?\ndate: ("(?:\\.|[^"\\])*")\r?\n---\r?\n\r?\n([\s\S]*)$/.exec(markdown);
-  if (!frontmatter?.[1] || frontmatter[3] === undefined) throw new EditorError('invalidArticle');
+  const frontmatter = /^---\r?\n[\s\S]*?\n---\r?\n(?:\r?\n)?/.exec(markdown)?.[0];
+  const encoded = frontmatter && titleLine.exec(frontmatter)?.[1];
+  if (!frontmatter || !encoded || !/^[\da-f]{40}$/i.test(sha)) throw new EditorError('invalidArticle');
   let title: unknown;
-  try { title = JSON.parse(frontmatter[1]); } catch { throw new EditorError('invalidArticle'); }
-  const day = path.slice(6, 16);
-  const date = new Date(`${day}T00:00:00.000Z`);
-  if (typeof title !== 'string' || !title.trim() || !/^posts\/\d{4}-\d{2}-\d{2}(?:-(?:[2-9]|[1-9]\d+))?\.md$/.test(path)
-    || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== day || !/^[\da-f]{40}$/i.test(sha)) {
-    throw new EditorError('invalidArticle');
-  }
-  return { title, body: frontmatter[3].replace(/\r?\n$/, ''), path, sha };
+  try { title = JSON.parse(encoded); parseArticlePath(path); } catch { throw new EditorError('invalidArticle'); }
+  if (typeof title !== 'string' || !title.trim()) throw new EditorError('invalidArticle');
+  return { title, body: markdown.slice(frontmatter.length).replace(/\r?\n$/, ''), path, sha, frontmatter };
 }

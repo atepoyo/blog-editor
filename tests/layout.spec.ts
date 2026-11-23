@@ -108,7 +108,7 @@ for (const width of [320, 390, 768, 1440]) {
       await page.getByRole('button', { name: language === 'ja' ? '閉じる' : 'Close', exact: true }).click();
       expect(await page.locator('.editor').boundingBox()).toEqual(editorBeforeHelp);
       await expect(body).toHaveValue(language === 'ja' ? '入力した本文\n次の行も同じ位置から始まります。' : 'The body text starts here.\nThe next line shares the same inset.');
-      await body.dispatchEvent('contextmenu');
+      await body.click({ delay: 600 });
       const photoMenu = page.getByRole('dialog', { name: language === 'ja' ? '写真を追加' : 'Add photo', exact: true });
       await expect(photoMenu).toBeVisible();
       const photoLayout = await photoMenu.evaluate((element) => {
