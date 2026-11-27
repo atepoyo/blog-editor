@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { expect, test } from '@playwright/test';
 import type { BrowserContext, Page, Route } from '@playwright/test';
 import { z } from 'zod';
@@ -279,19 +280,29 @@ test('保存失敗と確認応答の喪失でもEditorと投稿画面の写真�
 
 test('認証中のリダイレクト先へ本文写真を送らずログイン後の同じタブへ渡す', async ({ page, context }) => {
   await setup(context, page);
-  let authenticated = false;
-  await context.route(`${postingOrigin}/publish`, async (route) => {
-    if (!authenticated) return route.fulfill({ status: 302, headers: { location: 'http://127.0.0.1:5174/login' } });
-    return route.fallback();
+  // Playwright のルートはリダイレクト先で再実行されないため、別オリジンで認証画面を実際に配信する。
+  const loginServer = createServer((_, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    response.end('<h1>ローカル認証画面</h1><script>window.addEventListener("message",event=>{document.body.dataset.messages=String(Number(document.body.dataset.messages||0)+1)})</script>');
   });
-  await context.route('http://127.0.0.1:5174/login', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body:
-    '<h1>ローカル認証画面</h1><script>window.addEventListener("message",event=>{document.body.dataset.messages=String(Number(document.body.dataset.messages||0)+1)})</script>' }));
-  const target = await popup(page); await expect(target.getByRole('heading', { name: 'ローカル認証画面' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '受け渡しを中止' })).toBeVisible();
-  expect(await target.locator('body').getAttribute('data-messages')).toBeNull();
-  authenticated = true; await target.goto(postingUrl);
-  await expect(target.getByRole('article', { name: '記事のプレビュー' })).toContainText('別originの記事');
-  await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
+  await new Promise<void>((resolve) => loginServer.listen(0, '127.0.0.1', resolve));
+  try {
+    const address = loginServer.address();
+    if (!address || typeof address === 'string') throw new Error('認証画面のテスト用サーバーを開けません。');
+    const loginUrl = `http://127.0.0.1:${address.port}/login`;
+    const redirectToLogin = (route: Route) => route.fulfill({ status: 302, headers: { location: loginUrl } });
+    await context.route(postingUrl, redirectToLogin);
+    const target = await popup(page); await expect(target.getByRole('heading', { name: 'ローカル認証画面' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '受け渡しを中止' })).toBeVisible();
+    expect(await target.locator('body').getAttribute('data-messages')).toBeNull();
+    await context.unroute(postingUrl, redirectToLogin);
+    await target.goto(postingUrl);
+    await expect(target.getByRole('article', { name: '記事のプレビュー' })).toContainText('別originの記事');
+    await expect(page.getByRole('status')).toContainText('記事と写真を渡しました');
+  } finally {
+    loginServer.closeAllConnections();
+    await new Promise<void>((resolve, reject) => loginServer.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 for (const failure of ['popup', 'timeout', 'opener']) {

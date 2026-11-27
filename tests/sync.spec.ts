@@ -92,6 +92,15 @@ async function loadSync(page: Page, conflict = true) {
   await expect(page.getByTestId('sync-status')).toContainText(conflict ? '内容を残しています。使う内容を確認' : '本文と写真を同期しました');
 }
 async function locallySaved(page: Page) { await expect(page.getByTestId('draft-status')).toHaveAttribute('data-state', 'saved'); }
+
+async function useCloudDraft(page: Page) {
+  const choice = page.getByRole('button', { name: '別の端末の内容を使う', exact: true });
+  await choice.click();
+  // 写真の読み出しが終わるまでは選択前の「保存済み」が表示される。
+  await expect(choice).toHaveCount(0);
+  await locallySaved(page);
+}
+
 async function addPhoto(page: Page, caption: string) {
   const data = await page.evaluate(() => { const canvas = document.createElement('canvas'); canvas.width = 8; canvas.height = 5; return canvas.toDataURL().split(',')[1] ?? ''; });
   await page.getByLabel('写真を選択', { exact: true }).setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from(data, 'base64') });
@@ -137,7 +146,7 @@ test('独立した端末間で本人操作の保存と取得によって本文�
     await desktop.getByLabel('本文', { exact: true }).press('End'); await desktop.getByLabel('本文', { exact: true }).pressSequentially('\nPCで追記');
     await addPhoto(desktop, 'PCの写真'); await saveSync(desktop);
     const before = await stored(mobile); await loadSync(mobile); expect(await stored(mobile)).toEqual(before);
-    await mobile.getByRole('button', { name: '別の端末の内容を使う', exact: true }).click(); await locallySaved(mobile);
+    await useCloudDraft(mobile);
     expect(await stored(mobile)).toEqual(await stored(desktop));
     const counts = { get: syncGets, post: syncPosts.length };
     await mobile.reload(); await locallySaved(mobile); expect(await stored(mobile)).toEqual(await stored(desktop));
@@ -193,7 +202,7 @@ test('同時編集を上書きせず両方の本文と写真を保持し使う�
       }
     }
     await expect(local.getByRole('button', { name: '双方の本文・写真を保存' })).toHaveCount(0);
-    await local.getByRole('button', { name: '別の端末の内容を使う', exact: true }).click(); await locallySaved(local);
+    await useCloudDraft(local);
     expect(await stored(local)).toEqual(await stored(other));
     await expect(local.getByRole('button', { name: '双方の本文・写真を保存' })).toHaveCount(0); expect(articleCalls).toBe(0);
   } finally { await one.close(); await two.close(); }
@@ -237,7 +246,7 @@ test('取得した写真が同じパスでも選択した版の実体を保存�
   const result = await localRuntime().dispatchFetch(`${origin}/posts?draft=1`, { method: 'POST', headers: { origin, 'content-type': 'application/json', 'cf-access-jwt-assertion': 'local-test-token' }, body: JSON.stringify({ baseRevision: original.revision, draft: updated }) });
   expect(result.status).toBe(200);
   const before = await stored(page); await loadSync(page); expect(await stored(page)).toEqual(before);
-  await page.getByRole('button', { name: '別の端末の内容を使う', exact: true }).click(); await locallySaved(page);
+  await useCloudDraft(page);
   const local = await stored(page); expect(local.body).toBe(updated.body);
   expect(local.images[0]?.bytes).toEqual([...Buffer.from(updated.photos[0]?.data ?? '', 'base64')]);
   await page.reload(); await locallySaved(page); expect(await stored(page)).toEqual(local);
