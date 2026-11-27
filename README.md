@@ -21,7 +21,9 @@ The shared Editor is served publicly. A user's `worker/posting-ui.example.jsonc`
 
 ## Deployment
 
-The shared Editor is built and deployed to Cloudflare when build inputs are pushed to the repository's default branch. Before the first deployment, add `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as GitHub Actions secrets; see the [setup guide](docs/cloudflare-setup.md). This workflow deploys only the shared Editor. Each user's Gateway, posting page, and Publisher remain separately deployed to their own Cloudflare account.
+GitHub Actions runs `Validate` on pull requests. It runs the unit tests, builds the production assets with type checking, tests those assets in Chromium, and checks all four Worker bundles with Wrangler dry-runs.
+
+When Editor build inputs or the workflow change on the default branch, GitHub Actions runs the same checks and deploys the tested build to Cloudflare after they pass. Before the first deployment, add `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` as GitHub Actions secrets. See the [setup guide](docs/cloudflare-setup.md). Each user deploys their own Gateway, posting page, and Publisher to their own Cloudflare account.
 
 ## First-time setup
 
